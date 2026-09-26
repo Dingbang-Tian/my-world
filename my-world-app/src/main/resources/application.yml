@@ -1,6 +1,15 @@
 spring:
   application:
     name: my-world
+  ai:
+    model:
+      chat: openai
+    openai:
+      api-key: "${DEEPSEEK_API_KEY:ENC(v1:frM4hvFmnCuDstCg51Yx-XocRXaW95LJEdc0eQ6YM5y2VFulDINkOZrtEULG25zaqSQBGm8rOavva9_1Xuvz)}"
+      base-url: ${DEEPSEEK_BASE_URL:https://api.deepseek.com}
+      chat:
+        options:
+          model: ${DEEPSEEK_CHAT_MODEL:deepseek-flash}
   profiles:
     active: ${SPRING_PROFILES_ACTIVE:@spring.profiles.active@}
   threads:
@@ -8,6 +17,13 @@ spring:
       enabled: true
   lifecycle:
     timeout-per-shutdown-phase: 20s
+
+my-world:
+  ai:
+    enabled: true
+    provider: deepseek
+    default-system-prompt: "" # TODO: 配置项目级默认系统提示词
+    max-input-chars: 10000 # TODO: 按业务和模型上下文窗口调整
 
 server:
   shutdown: graceful

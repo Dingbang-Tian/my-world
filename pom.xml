@@ -20,6 +20,7 @@
 
     <modules>
         <module>my-world-common</module>
+        <module>my-world-ai</module>
         <module>my-world-app</module>
     </modules>
 
@@ -27,12 +28,27 @@
         <java.version>21</java.version>
         <maven.compiler.release>21</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <spring-ai.version>1.1.8</spring-ai.version>
         <hutool.version>5.8.47</hutool.version>
         <okhttp.version>4.12.0</okhttp.version>
+        <guava.version>33.4.8-jre</guava.version>
+        <commons-collections4.version>4.4</commons-collections4.version>
+        <vavr.version>0.10.5</vavr.version>
+        <streamex.version>0.8.2</streamex.version>
+        <cglib.version>3.3.0</cglib.version>
+        <easyexcel.version>4.0.3</easyexcel.version>
+        <commons-io.version>2.18.0</commons-io.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>org.springframework.ai</groupId>
+                <artifactId>spring-ai-bom</artifactId>
+                <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
             <dependency>
                 <groupId>cn.hutool</groupId>
                 <artifactId>hutool-all</artifactId>
@@ -42,6 +58,41 @@
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp</artifactId>
                 <version>${okhttp.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.google.guava</groupId>
+                <artifactId>guava</artifactId>
+                <version>${guava.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.commons</groupId>
+                <artifactId>commons-collections4</artifactId>
+                <version>${commons-collections4.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.vavr</groupId>
+                <artifactId>vavr</artifactId>
+                <version>${vavr.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>one.util</groupId>
+                <artifactId>streamex</artifactId>
+                <version>${streamex.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cglib</groupId>
+                <artifactId>cglib</artifactId>
+                <version>${cglib.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.alibaba</groupId>
+                <artifactId>easyexcel</artifactId>
+                <version>${easyexcel.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>commons-io</groupId>
+                <artifactId>commons-io</artifactId>
+                <version>${commons-io.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>
