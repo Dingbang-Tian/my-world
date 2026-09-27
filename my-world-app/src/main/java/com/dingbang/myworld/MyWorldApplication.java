@@ -29,7 +29,7 @@ public class MyWorldApplication {
                   ____) |  __/ |_) | (_| \\__ \\ |_| | (_| | | | |
                  |_____/ \\___|_.__/ \\__,_|___/\\__|_|\\__,_|_| |_|
                 
-                 ========================      Sebastian's MyWorld Has Been Started      ========================
+                 ========================        Sebastian's MyWorld Has Been Started        ========================
                 
                 """);
     }
