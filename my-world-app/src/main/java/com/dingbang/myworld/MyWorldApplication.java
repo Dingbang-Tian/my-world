@@ -17,10 +17,20 @@ public class MyWorldApplication {
     /**
      * 启动应用
      *
-     * @param args
+     * @param args 应用启动参数
      */
     public static void main(String[] args) {
         SpringApplication.run(MyWorldApplication.class, args);
-        log.warn("======== MyWorld Has Been Started ========");
+        log.warn("""                   
+                   _____      _               _   _
+                  / ____|    | |             | | (_)
+                 | (___   ___| |__   __ _ ___| |_ _  __ _ _ __
+                  \\___ \\ / _ \\ '_ \\ / _` / __| __| |/ _` | '_ \\
+                  ____) |  __/ |_) | (_| \\__ \\ |_| | (_| | | | |
+                 |_____/ \\___|_.__/ \\__,_|___/\\__|_|\\__,_|_| |_|
+                
+                 ============ Sebastian's MyWorld Has Been Started ============
+                
+                """);
     }
 }
