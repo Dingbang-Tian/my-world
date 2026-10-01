@@ -1,0 +1,10 @@
+spring:
+  ai:
+    model:
+      chat: none
+    openai:
+      api-key: s01-no-network
+
+my-world:
+  ai:
+    enabled: true

@@ -21,6 +21,8 @@
     <modules>
         <module>my-world-common</module>
         <module>my-world-ai</module>
+        <module>my-world-ai-agent</module>
+        <module>my-world-ai-app</module>
         <module>my-world-app</module>
     </modules>
 
