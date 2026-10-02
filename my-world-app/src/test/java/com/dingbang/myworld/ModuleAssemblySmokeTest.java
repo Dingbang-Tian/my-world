@@ -28,7 +28,7 @@ class ModuleAssemblySmokeTest {
      */
     @Test
     void loadsModuleChainAndExistingChatService() {
-        /** 使用测试配置与假模型启动的应用上下文。 */
+        // 使用测试配置与假模型启动的应用上下文。
         ConfigurableApplicationContext context = new SpringApplicationBuilder(
                 MyWorldApplication.class, FakeModelConfiguration.class)
                 .web(WebApplicationType.NONE)

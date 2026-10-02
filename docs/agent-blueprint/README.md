@@ -10,8 +10,8 @@
 
 - 目标仓库：`/Users/sebastian/myPorject/myWorld`。
 - 参考源码：`/Users/sebastian/myPorject/openSource/agent4j-main`。
-- AI 相关模块只分为 `my-world-ai`、`my-world-ai-agent`、`my-world-ai-app`。
-- `my-world-ai` 负责模型接入和配置；`my-world-ai-agent` 负责公共 Agent 功能及对外 API；`my-world-ai-app` 负责接入场景，代码生成代码归入 `codegen` 包。
+- AI 相关模块包括 `my-world-ai-framework`、`my-world-ai`、`my-world-ai-agent`、`my-world-ai-app`。
+- `my-world-ai-framework` 负责协议中立的自研模型契约和数据对象，不引入 Spring AI；`my-world-ai` 负责 Spring AI 接入和配置；`my-world-ai-agent` 负责公共 Agent 功能及对外 API；`my-world-ai-app` 负责接入场景，代码生成代码归入 `codegen` 包。
 - 现有 `my-world-app` 继续承担 Spring Boot 启动及 Web 入口，它与 `my-world-ai-app` 是两个不同模块。
 - Agent4J 的模型协议、工具、技能、流式输出、计划、子 Agent、会话、压缩、序列化、多模态和 Embedding 能力全部纳入功能对照。
 - 提示词从 Java 静态代码拆出；通用模板带默认值，应用可以覆盖；第一版启动时加载，热更新列为后续扩展。
@@ -23,7 +23,7 @@
 | 项目 | 当前事实 | 对实施的影响 |
 |---|---|---|
 | myWorld | Maven 多模块；Java 21；父 POM 声明 Spring Boot 3.5.16、Spring AI 1.1.8 | 这些是本地声明值，不是最新版本推荐；先沿用，验证依赖实际可解析 |
-| 模块 | 当前只有 common、ai、app | 新增 ai-agent、ai-app；更新父 POM 和启动模块依赖 |
+| 模块 | 当前只有 common、ai、app | 新增 ai-framework、ai-agent、ai-app；更新父 POM 和启动模块依赖 |
 | AI 接入 | 已有 AiChatService、SpringAiChatAdapter、AiProperties、SpringAiConfiguration | 保留普通对话 API；增加能携带结构化工具调用的模型接口 |
 | 现有请求 | AiChatRequest 带 conversationId，但适配器未使用它管理历史 | 不能把已有字段当成已完成会话记忆 |
 | 现有流式 | AiChatService.stream 返回 Flux<String> | 新 Agent API 使用结构化事件，普通文本接口保持用途 |
@@ -52,7 +52,7 @@
 
 以下为基于用户目标采用的实施默认值，尚非已实现事实。另一会话可在有证据时小幅调整，并在 PROGRESS.md 的决策记录写明原因和影响。
 
-1. 三个 AI 模块是普通 JAR；只有现有 my-world-app 执行 Spring Boot 可执行包重打包。
+1. 四个 AI 模块是普通 JAR；只有现有 my-world-app 执行 Spring Boot 可执行包重打包。
 2. 新模型接口采用协议中立的消息和事件；Agent 循环只在 ai-agent 中实现一次。
 3. 保留现有 Spring AI 普通对话接入；新 Agent 模型接口优先以 Agent4J 的 HTTP/SSE 实现为参考，做单次模型请求适配。不得把旧实现里的 Agent 循环原样放进适配器。
 4. 如使用 Spring AI 实现新模型接口，必须先验证所用版本能关闭内部工具执行并返回原始工具请求，通过同一套适配器契约测试。两条实现路线不能同时对一次请求负责工具循环。
@@ -102,7 +102,7 @@
 再读 STEPS.md 中下一待执行阶段；否则先读初始图纸及其四个关联文件，并在 S00 复制到工作副本。
 不要只凭此提示词重新设计架构。
 
-确定的模块是：my-world-ai（模型接入）、my-world-ai-agent（公共 Agent）、
+确定的模块是：my-world-ai-framework（自研模型契约）、my-world-ai（Spring AI 接入）、my-world-ai-agent（公共 Agent）、
 my-world-ai-app（AI 应用，代码生成归 codegen 包）。现有 my-world-app 是启动模块。
 完整保留对照表中的功能；提示词从配置／资源加载；接口支持模型、工具、提示词和存储扩展。
 

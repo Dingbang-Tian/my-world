@@ -32,11 +32,11 @@
 
 **退出条件：**基线有可复现记录；未解决阻塞明确；下一阶段是 S01。
 
-## S01：建立两个新模块和可启动装配
+## S01：建立 AI 模块和可启动装配
 
 **学习目标：**理解依赖方向如何决定扩展边界。
 
-**实现任务：**新增 my-world-ai-agent 和 my-world-ai-app 的 POM，沿用父版本；更新聚合 modules；ai-app 依赖 agent，agent 依赖 ai；启动模块引入 ai-app。只创建本阶段必要配置与包说明，不生成未来全部接口。
+**实现任务：**新增 my-world-ai-framework、my-world-ai-agent 和 my-world-ai-app 的 POM，沿用父版本；更新聚合 modules；ai-app 依赖 agent，agent 依赖 framework；启动模块分别按用途引入 ai 与 ai-app。Spring AI 配置留在 ai 模块，Agent 配置不得直接导入 SpringAiConfiguration。只创建本阶段必要配置与包说明，不生成未来全部接口。
 
 **流程：**启动模块 → AI 应用装配 → Agent 配置 → 模型配置。没有 API Key 的测试使用 test profile 和假模型，不发真实请求。
 
@@ -50,7 +50,7 @@
 
 **学习目标：**区分“模型生成下一步”与“程序执行下一步”。
 
-**实现任务：**在 ai/api 和 ai/model 增加 ModelRequest、Message/Role、ToolCall/Result、ModelEvent、ModelTurn、ModelGateway 的最小契约；声明 system 角色，区分增量事件和完整结果。建立测试用 ScriptedModelGateway，可按请求返回文本或工具调用。
+**实现任务：**在 ai-framework 的 api 和 model 包增加 ModelRequest、Message/Role、ToolCall/Result、ModelEvent、ModelTurn、ModelGateway 的最小契约；声明 system 角色，区分增量事件和完整结果。建立测试用 ScriptedModelGateway，可按请求返回文本或工具调用。该模块不得引入 Spring AI。
 
 **流程：**测试构造 user 消息 → 假模型返回若干 text delta → 唯一 TurnCompleted → 获取完整 assistant。
 
@@ -122,7 +122,7 @@
 
 **学习目标：**把假模型换成 HTTP/SSE，观察 Agent 循环保持不变。
 
-**实现任务：**在 ai 中实现或适配单次 Chat 请求，解析普通内容、reasoning、工具片段和 usage；引入 modelId 注册和调用级选项。保留现有 Spring AI 对话入口；新路径不得自动调用内部工具执行器。
+**实现任务：**在 ai-framework 中实现或适配协议中立的单次 Chat 请求契约，解析普通内容、reasoning、工具片段和 usage；引入 modelId 注册和调用级选项。Spring AI 的具体适配保留在 ai 模块，并通过单向适配实现 framework 契约；新路径不得自动调用内部工具执行器。
 
 **流程：**Agent → ModelGateway → 本地 SSE fixture → tool call → Agent 执行 → 第二次 fixture → 回答。凭据可用时另做一个只读 smoke。
 

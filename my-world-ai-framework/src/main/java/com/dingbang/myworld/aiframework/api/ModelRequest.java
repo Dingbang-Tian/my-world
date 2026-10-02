@@ -1,0 +1,53 @@
+package com.dingbang.myworld.aiframework.api;
+
+import com.dingbang.myworld.aiframework.model.Message;
+import com.dingbang.myworld.common.utils.collection.CollectionUtils;
+import com.dingbang.myworld.common.utils.lang.StringUtils;
+import lombok.Data;
+
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Objects;
+
+/**
+ * 一次模型请求的最小不可变输入快照。
+ *
+ * @author Sebastian
+ * @since 2026/10/01
+ */
+@Data
+public final class ModelRequest {
+
+    /**
+     * 已配置的模型实例标识。
+     */
+    private final String modelId;
+
+    /**
+     * 本轮发送给模型的消息快照。
+     */
+    private final List<Message> messages;
+
+    /**
+     * 校验模型标识并复制消息列表。
+     *
+     * @param modelId 已配置的模型实例标识
+     * @param messages 本轮消息列表
+     * @throws IllegalArgumentException 当模型标识或消息列表为空时
+     * @throws NullPointerException 当消息列表为 null 时
+     */
+    public ModelRequest(String modelId, List<Message> messages) {
+        if (StringUtils.isBlank(modelId)) {
+            throw new IllegalArgumentException("模型标识不能为空");
+        }
+        Objects.requireNonNull(messages, "消息列表不能为 null");
+        if (CollectionUtils.isEmpty(messages)) {
+            throw new IllegalArgumentException("模型请求至少需要一条消息");
+        }
+        messages.forEach(Objects::requireNonNull);
+        this.modelId = modelId;
+        this.messages = Collections.unmodifiableList(new ArrayList<>(messages));
+    }
+
+}

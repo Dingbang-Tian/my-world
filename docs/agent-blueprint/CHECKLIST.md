@@ -9,7 +9,7 @@
 | ID | 必须保留的能力 | 参考位置 | 目标模块/阶段 | 实现与证据 |
 |---|---|---|---|---|
 | F01 | Agent 名称、描述、模型、工具和技能定义 | agent/AgentClient | ai-agent，S04/S05/S06 | 待完成 |
-| F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai/ai-agent，S02/S04/S07/S08 | 待完成 |
+| F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai-framework/ai-agent，S02/S04/S07/S08 | S02 部分完成：`ModelGateway`、`ModelEvent`、`ModelTurn` 及 `ModelGatewayContractTest` 4/4，验证本地假模型单轮增量与完整结果；同步 Agent 调用、真实协议与取消仍待后续阶段 |
 | F03 | 工具完整闭环与调用结果回传 | 各模型的 handleToolCallsAndContinue 等方法 | ai-agent，S06 | 待完成 |
 | F04 | 工具注解、参数解析和 JSON Schema | core/tool/ToolDescriptor/ToolParam/annotations | ai-agent，S05 | 待完成 |
 | F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | 待完成 |
@@ -21,11 +21,11 @@
 | F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | 待完成 |
 | F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | 待完成 |
 | F13 | 子 Agent 定义、独立会话、结果回传 | executeSubAgentTool、CreateSubAgentTool | ai-agent，S14 | 待完成 |
-| F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai/agent，S07/S09/S16 | 待完成 |
-| F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai，S07/S16 | 待完成 |
-| F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai/agent，S07/S14/S21 | 待完成 |
-| F17 | 可开关的请求与 SSE 调试信息 | LLMRequestDebugLogger | ai，S07/S21 | 待完成 |
-| F18 | 环境上下文提示、附件与多模态消息 | buildSystemContext、MessageAttachment 等 | agent/ai/codegen，S10/S16 | 待完成 |
+| F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | 待完成 |
+| F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai-framework，S07/S16 | 待完成 |
+| F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | 待完成 |
+| F17 | 可开关的请求与 SSE 调试信息 | LLMRequestDebugLogger | ai-framework，S07/S21 | 待完成 |
+| F18 | 环境上下文提示、附件与多模态消息 | buildSystemContext、MessageAttachment 等 | agent/ai-framework/codegen，S10/S16 | 待完成 |
 
 “保留”指能力与有效行为，不要求兼容 Agent4J 所有类名、错误行为或 JSON 私有实现。若对参考导出 JSON 提供导入支持，必须专门列格式版本与迁移测试；第一版默认只保证新系统自身的导出/导入，不冒称兼容旧格式。
 
@@ -52,15 +52,15 @@
 
 | 协议/能力 | 验收要求 | 阶段 | 实现与证据 |
 |---|---|---|---|
-| OpenAI Chat 及兼容供应商 | 单次请求、SSE、tool calls、usage、取消、结束原因 | S07/S08 | 待完成 |
-| OpenAI Responses | 独立请求/事件/工具结果映射；与统一模型契约一致 | S16 | 待完成 |
-| Anthropic Messages | system、content blocks、tool_use/result、reasoning 元数据和完成事件 | S16 | 待完成 |
-| MiMo/Qwen 等参考兼容处理 | 实际字段与历史处理有 fixture，不依赖供应商名猜测全部能力 | S16 | 待完成 |
-| 附件和多模态聊天 | 根据参考实现列出具体媒体/协议支持表；不支持的组合显式拒绝 | S16 | 待完成 |
-| OpenAI Embedding | 批量文本、维度、索引、向量和 usage | S17 | 待完成 |
-| DashScope 多模态 Embedding | 文本、图片、视频、融合、维度与向量类型 | S17 | 待完成 |
-| 多模型配置/切换 | 通过 modelId 查找，请求参数隔离；不修改 singleton 来模拟会话选项 | S07/S16 | 待完成 |
-| 自定义模型协议扩展 | 增加适配器及注册即通过契约，不改 Agent 循环 | S16/S22 | 待完成 |
+| OpenAI Chat 及兼容供应商 | 单次请求、SSE、tool calls、usage、取消、结束原因 | ai-framework，S07/S08 | 待完成 |
+| OpenAI Responses | 独立请求/事件/工具结果映射；与统一模型契约一致 | ai-framework，S16 | 待完成 |
+| Anthropic Messages | system、content blocks、tool_use/result、reasoning 元数据和完成事件 | ai-framework，S16 | 待完成 |
+| MiMo/Qwen 等参考兼容处理 | 实际字段与历史处理有 fixture，不依赖供应商名猜测全部能力 | ai-framework，S16 | 待完成 |
+| 附件和多模态聊天 | 根据参考实现列出具体媒体/协议支持表；不支持的组合显式拒绝 | ai-framework，S16 | 待完成 |
+| OpenAI Embedding | 批量文本、维度、索引、向量和 usage | ai-framework，S17 | 待完成 |
+| DashScope 多模态 Embedding | 文本、图片、视频、融合、维度与向量类型 | ai-framework，S17 | 待完成 |
+| 多模型配置/切换 | 通过 modelId 查找，请求参数隔离；不修改 singleton 来模拟会话选项 | ai-framework，S07/S16 | 待完成 |
+| 自定义模型协议扩展 | 增加适配器及注册即通过契约，不改 Agent 循环 | ai-framework，S16/S22 | 待完成 |
 
 离线协议验证、真实供应商验证、平台执行验证分开记录。某平台/供应商没有环境可测，应保留未验证标记，不把缺凭据解释为接口已验证可用。
 

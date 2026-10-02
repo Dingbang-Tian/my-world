@@ -4,18 +4,19 @@
 
 ## 1. 模块与包
 
-依赖方向：`my-world-app → my-world-ai-app → my-world-ai-agent → my-world-ai → my-world-common`。已有 app 对 common/ai 的直接依赖可保留用于现有功能。禁止 ai 反向依赖 agent，禁止 agent 依赖 codegen。
+依赖方向分为两条链：`my-world-app → my-world-ai → my-world-common`（Spring AI 普通对话）以及 `my-world-app → my-world-ai-app → my-world-ai-agent → my-world-ai-framework → my-world-common`（自研 Agent 框架）。`my-world-ai` 不被 Agent 模块依赖；未来若由 Spring AI 实现 `ModelGateway`，只能由 Spring AI 适配模块单向依赖 framework。禁止 framework 依赖 Spring AI，禁止 ai 反向依赖 agent，禁止 agent 依赖 codegen。
 
 ```text
+my-world-ai-framework / com.dingbang.myworld.aiframework
+  api/                  协议中立的单次模型请求、响应、事件和模型能力接口
+  model/                协议中立的消息、内容块、工具调用和工具结果
+  provider/             模型实例注册、modelId 解析、能力检查（后续阶段）
+  adapter/              自研协议适配器（后续阶段）
+
 my-world-ai / com.dingbang.myworld.ai
-  api/                  单次模型请求、响应、事件、模型能力及 Embedding 接口
-  model/                协议中立的消息、内容块、工具描述、用量
-  provider/             模型实例注册、modelId 解析、能力检查
-  adapter/openai/       Chat 与 Responses 单次请求适配
-  adapter/anthropic/    Messages 单次请求适配
-  adapter/embedding/    OpenAI 与 DashScope 多模态 Embedding
   application/          保留已有 AiChatService 等普通对话接口
-  config/ crypto/       复用配置与密钥实现
+  adapter/               Spring AI ChatClient 适配
+  config/ crypto/        Spring AI 配置与密钥实现
 
 my-world-ai-agent / com.dingbang.myworld.agent
   api/                  AgentService、AgentRun、请求、结果、事件、查询和异常
@@ -45,7 +46,7 @@ my-world-app / com.dingbang.myworld
 
 公共工具机制归 agent；具有操作系统副作用的代码生成工具归 ai-app/codegen；`create_plan` 和 `create_sub_agent` 归 agent/orchestration。以后其他应用可选择注册这些工具或提供自己的实现，agent 无需反向导入应用类。
 
-公共 API 的请求／结果放 api 包；扩展者还可使用明确标为扩展契约的 tool、skill、prompt、persistence 接口。内部类不必全部 public；公开 API 不出现内部实现类、Spring AI 模型对象或数据库连接。
+公共 API 的请求／结果放 framework 或 agent 的 api 包；扩展者还可使用明确标为扩展契约的 tool、skill、prompt、persistence 接口。公开契约使用顶层接口和实现类，不把内部实现类、Spring AI 模型对象或数据库连接暴露给调用方。
 
 ## 2. 单次模型接口
 
@@ -67,7 +68,7 @@ providerId、protocol、modelId 不混为一谈：同一协议可接多个供应
 
 未知模型、未配置凭据、请求使用不支持的工具／附件能力：在联网前返回可识别的配置或能力错误。不得静默丢弃附件、工具或 thinking 选项。模型专有字段限制在适配层。
 
-现有 AiChatService 继续服务文本对话；初期可保持现有 SpringAiChatAdapter。待新 gateway 稳定后，可用薄适配器把旧接口转到 gateway，必须先通过原有普通对话回归，避免同时维护两套已分叉的业务逻辑。
+现有 AiChatService 继续服务文本对话；初期保持 `my-world-ai` 内的 SpringAiChatAdapter。自研 Agent 只依赖 `my-world-ai-framework`；待新 gateway 稳定后，如果需要让 Spring AI 提供自研 gateway，再增加单向的 Spring AI → framework 适配，必须先通过原有普通对话回归，避免同时维护两套已分叉的业务逻辑。
 
 ## 3. 消息与工具的中立表示
 
