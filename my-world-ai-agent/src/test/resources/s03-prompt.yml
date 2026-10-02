@@ -1,0 +1,10 @@
+my-world:
+  agent:
+    prompts:
+      system:
+        inline: |
+          项目 YAML 系统模板：{{agentName}}
+      plan-step:
+        inline: "项目计划步骤：{{stepNumber}}"
+      sub-agent:
+        location: classpath:/s03-project-sub-agent.md
