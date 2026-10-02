@@ -1,11 +1,14 @@
 package com.dingbang.myworld.agent.runtime;
 
 import com.dingbang.myworld.agent.api.AgentEvent;
+import com.dingbang.myworld.agent.api.AgentEventException;
 import com.dingbang.myworld.agent.api.AgentEventListener;
-
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executor;
 
 /**
  * 在进程内保存有限事件历史，并向 Agent 运行观察者发布事件。
@@ -14,127 +17,127 @@ import java.util.Objects;
  * @since 2026/10/02
  */
 final class AgentEventPublisher {
-
-    /**
-     * 最多保留的历史事件数量。
-     */
+    /** 事件历史及每个消费者队列容量。 */
     private final int historyLimit;
-
-    /**
-     * 可供迟到观察者回放的事件历史。
-     */
-    private final List<AgentEvent> history = new ArrayList<>();
-
-    /**
-     * 正在等待后续事件的监听器。
-     */
-    private final List<AgentEventListener> listeners = new ArrayList<>();
-
-    /**
-
-     * 当前事件序列是否已经结束。
-
-     */
+    /** 事件派发专用执行器。 */
+    private final Executor executor;
+    /** 有界历史事件。 */
+    private final Deque<AgentEvent> history = new ArrayDeque<>();
+    /** 活跃订阅，单次运行最多 32 个。 */
+    private final List<AgentEventSubscription> listeners = new ArrayList<>();
+    /** 是否已关闭事件序列。 */
     private boolean completed;
+    /** 最近发布的序号。 */
+    private long lastSequence;
 
     /**
-     * 创建事件发布器。
+     * 创建默认异步事件发布器。
      *
-     * @param historyLimit 最多保留的历史事件数量
-     * @throws IllegalArgumentException 保留数量小于 1 时
+     * @param historyLimit 事件容量，必须大于零
      */
     AgentEventPublisher(int historyLimit) {
+        this(historyLimit, AgentExecutors.EVENTS);
+    }
+
+    /**
+     * 创建可注入事件执行器的发布器。
+     *
+     * @param historyLimit 事件容量
+     * @param executor 非阻塞派发执行器
+     */
+    AgentEventPublisher(int historyLimit, Executor executor) {
         if (historyLimit < 1) {
-            throw new IllegalArgumentException("事件历史保留数量必须大于 0");
+            throw new IllegalArgumentException("事件历史保留数量必须大于零");
         }
         this.historyLimit = historyLimit;
+        this.executor = Objects.requireNonNull(executor, "事件执行器不能为 null");
     }
 
     /**
-     * 回放已发生事件，并注册监听器接收后续事件。
+     * 原子登记回放和实时事件，历史缺口明确拒绝。
      *
-     * @param listener 接收 Agent 事件的监听器
+     * @param listener 事件观察者
+     * @param afterSequence 已消费序号
+     * @throws AgentEventException 历史缺失、订阅过多或执行器饱和时
      */
-    synchronized void subscribe(AgentEventListener listener) {
-        // 先校验监听器，再在同一把锁内完成回放和登记，避免两步之间漏掉新事件。
-        AgentEventListener actualListener = Objects.requireNonNull(listener, "Agent 事件监听器不能为 null");
+    synchronized void subscribe(AgentEventListener listener, long afterSequence) {
+        Objects.requireNonNull(listener, "Agent 事件监听器不能为 null");
+        /** 当前有限历史的起点。 */
+        long first = history.isEmpty() ? lastSequence + 1 : history.getFirst().getSequence();
+        if (afterSequence < 0 || afterSequence > lastSequence) {
+            throw new AgentEventException("INVALID_EVENT_CURSOR", "事件序号不在当前运行范围内", first);
+        }
+        if (afterSequence < first - 1) {
+            throw new AgentEventException("EVENT_HISTORY_GAP", "事件历史已淘汰，请查询结果或从可用序号订阅", first);
+        }
+        listeners.removeIf(AgentEventSubscription::isClosed);
+        if (listeners.size() >= 32) {
+            throw new AgentEventException("TOO_MANY_SUBSCRIBERS", "单次运行最多允许 32 个活动订阅", first);
+        }
+        /** 独立的消费者有界队列。 */
+        AgentEventSubscription subscription = new AgentEventSubscription(listener, historyLimit, executor);
+        /** 当前可回放事件。 */
         for (AgentEvent event : history) {
-            notifyEvent(actualListener, event);
+            if (event.getSequence() > afterSequence) {
+                subscription.offer(event);
+            }
         }
         if (completed) {
-            // 迟到监听器只接收历史和结束通知，不会留在 listeners 中。
-            notifyComplete(actualListener);
-            return;
+            subscription.complete();
+        } else {
+            listeners.add(subscription);
         }
-        // 运行尚未结束，后续 publish 会把新事件发送给该监听器。
-        listeners.add(actualListener);
+        subscription.dispatch();
     }
 
     /**
-     * 记录一条新事件并发送给当前全部监听器。
+     * 保留有限历史并非阻塞投递给全部消费者。
      *
-     * @param event 要发布的 Agent 事件
-     * @throws IllegalStateException 事件序列已结束时
+     * @param event 新事件
      */
     synchronized void publish(AgentEvent event) {
-        // 运行结束后禁止补发事件，防止终态之后出现新的文本增量。
-        AgentEvent actualEvent = Objects.requireNonNull(event, "Agent 事件不能为 null");
         if (completed) {
-            throw new IllegalStateException("Agent 事件序列已经结束");
+            return;
         }
         if (history.size() == historyLimit) {
-            // 保持固定内存上限；最早的事件先被移除。
-            history.remove(0);
+            history.removeFirst();
         }
-        history.add(actualEvent);
-        // 复制监听器列表，避免监听器回调影响当前遍历。
-        for (AgentEventListener listener : new ArrayList<>(listeners)) {
-            notifyEvent(listener, actualEvent);
+        history.addLast(event);
+        lastSequence = event.getSequence();
+        /** 当前实时订阅。 */
+        for (AgentEventSubscription subscription : listeners) {
+            subscription.offer(event);
+            dispatch(subscription);
         }
+        listeners.removeIf(AgentEventSubscription::isClosed);
     }
 
     /**
-
-     * 结束事件序列并通知当前监听器。
-
+     * 将结束通知排在已发布事件之后并释放实时订阅列表。
      */
     synchronized void complete() {
         if (completed) {
             return;
         }
-        // 先标记结束，保证回调期间新注册的监听器走“回放后结束”的分支。
         completed = true;
-        for (AgentEventListener listener : new ArrayList<>(listeners)) {
-            notifyComplete(listener);
+        /** 当前需要结束的订阅。 */
+        for (AgentEventSubscription subscription : listeners) {
+            subscription.complete();
+            dispatch(subscription);
         }
-        // 有限运行结束后无需再保存活动监听器引用。
         listeners.clear();
     }
 
     /**
-     * 隔离单个监听器的运行时错误，保证观察代码不会中断 Agent 运行。
+     * 让运行不受观察者线程池饱和影响，失败订阅由关闭标志移除。
      *
-     * @param listener 事件监听器
-     * @param event 要通知的事件
+     * @param subscription 当前订阅
      */
-    private void notifyEvent(AgentEventListener listener, AgentEvent event) {
+    private void dispatch(AgentEventSubscription subscription) {
         try {
-            listener.onEvent(event);
-        } catch (RuntimeException ignored) {
-            // 事件观察者的异常不应改变模型调用和最终结果。
-        }
-    }
-
-    /**
-     * 隔离单个监听器的运行时错误，保证其他监听器仍能收到结束通知。
-     *
-     * @param listener 事件监听器
-     */
-    private void notifyComplete(AgentEventListener listener) {
-        try {
-            listener.onComplete();
-        } catch (RuntimeException ignored) {
-            // 事件观察者的异常不应阻止其他观察者结束。
+            subscription.dispatch();
+        } catch (AgentEventException ignored) {
+            // 调度失败不会改变 Agent 的业务结果；新订阅仍会直接收到明确错误。
         }
     }
 }

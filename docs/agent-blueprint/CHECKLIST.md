@@ -9,10 +9,10 @@
 | ID | 必须保留的能力 | 参考位置 | 目标模块/阶段 | 实现与证据 |
 |---|---|---|---|---|
 | F01 | Agent 名称、描述、模型、工具和技能定义 | agent/AgentClient | ai-agent，S04/S05/S06 | `AgentDefinition` 含可信模型、工具、技能和回合上限；S06 假模型验证授权工具与技能说明，业务级配置接入待后续阶段 |
-| F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai-framework/ai-agent，S02/S04/S07/S08 | S07 `OpenAiChatGatewayTest` 与 `OpenAiChatAgentIntegrationTest` 已验证本地 HTTP/SSE、增量和最终结果；真实供应商与取消待验证 |
+| F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai-framework/ai-agent，S02/S04/S07/S08 | S07 `OpenAiChatGatewayTest` 与 `OpenAiChatAgentIntegrationTest` 已验证本地 HTTP/SSE、增量和最终结果；真实供应商待验证；S08 本地 SSE 取消、超时与唯一终态已验证 |
 | F03 | 工具完整闭环与调用结果回传 | 各模型的 handleToolCallsAndContinue 等方法 | ai-agent，S06 | `DefaultAgentRun` 统一追加 assistant/tool、执行工具并续问；`AgentToolLoopTest` 验证两个 callId 和最终文本；真实协议待 S07 |
 | F04 | 工具注解、参数解析和 JSON Schema | core/tool/ToolDescriptor/ToolParam/annotations | ai-agent，S05 | `agent/tool/ToolDescriptor`、`tool/annotation`、`ToolRegistry` 已支持字符串、数值、布尔、枚举和列表/数组并严格校验；`ToolExecutorTest` 本地验证，协议适配待 S07 |
-| F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | `ToolExecutor` 发布 PREPARING/CALLING/COMPLETED/FAILED；S06 映射为带 callId 的 Agent 事件并验证顺序，取消待 S08 |
+| F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | `ToolExecutor` 发布 PREPARING/CALLING/COMPLETED/FAILED；S06 映射为带 callId 的 Agent 事件并验证顺序，S08 已验证取消后后续工具不启动及工具上下文协作取消 |
 | F06 | 工具异常反馈给模型，供模型修正 | ToolExecutor.handleToolError | ai-agent，S06 | S06 已验证参数失败为 `TOOL_VALIDATION_ERROR`、Java 工具不执行、模型据结果发出修正调用；其他异常的模型修正待扩展 |
 | F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | `AgentSkill` 按 ID 聚合工具和说明；运行时去重并写入 SYSTEM；codegen 技能待 S10 |
 | F08 | 关闭技能与内置工具，作为普通客户端使用 | AgentClient.clearAllSkills、getAllTools | ai-agent，S06/S09 | 定义可使用空 skillIds/toolIds；S04 原无工具对话和 S06 未授权工具错误已验证；管理 API 待 S09 |
@@ -52,7 +52,7 @@
 
 | 协议/能力 | 验收要求 | 阶段 | 实现与证据 |
 |---|---|---|---|
-| OpenAI Chat 及兼容供应商 | 单次请求、SSE、tool calls、usage、取消、结束原因 | ai-framework，S07/S08 | S07 本地 HTTP fixture 验证单次请求、SSE、多 index 分片、usage 尾块、结束原因、401/429/500 与断流；真实供应商及取消待 S08/独立冒烟 |
+| OpenAI Chat 及兼容供应商 | 单次请求、SSE、tool calls、usage、取消、结束原因 | ai-framework，S07/S08 | S07 本地 HTTP fixture 验证单次请求、SSE、多 index 分片、usage 尾块、结束原因、401/429/500 与断流；真实供应商及S08 已验证取消后后续工具不启动及工具上下文协作取消/独立冒烟 |
 | OpenAI Responses | 独立请求/事件/工具结果映射；与统一模型契约一致 | ai-framework，S16 | 待完成 |
 | Anthropic Messages | system、content blocks、tool_use/result、reasoning 元数据和完成事件 | ai-framework，S16 | 待完成 |
 | MiMo/Qwen 等参考兼容处理 | 实际字段与历史处理有 fixture，不依赖供应商名猜测全部能力 | ai-framework，S16 | 待完成 |
@@ -134,7 +134,7 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 | A08 | 对话超压缩阈值 | 原始历史仍可查；下一请求使用摘要；工具交换完整 |
 | A09 | 会话正常关闭后重启 | 从数据库恢复用户、assistant、tool 及摘要，继续回答 |
 | A10 | 外部副作用后模拟落库失败 | 恢复识别不确定状态，不自动重复写入/执行命令 |
-| A11 | 模型断流/任务取消/命令超时 | 唯一对应终态、Future 结束、后续工具未启动、资源回收；S04 本地模型错误已验证 FAILED 结果和 Future 完成，取消与命令超时待 S08/S12 |
+| A11 | 模型断流/任务取消/命令超时 | 唯一对应终态、Future 结束、后续工具未启动、资源回收；S04 本地模型错误已验证 FAILED 结果和 Future 完成，S08 已验证取消与全局超时；命令进程超时待 S12 |
 | A12 | 两会话使用不同模型参数 | S04 已验证同会话 `SESSION_BUSY`；S07 直接 ModelRequest 验证两 modelId 和调用级选项隔离；两会话选项与历史联动待 S09 |
 | A13 | 同一任务分别接三协议 fixture | 上层循环无需修改，模型消息语义一致 |
 | A14 | 两类 Embedding 输入 | 向量/索引/usage 正确，非法模型类型和媒体组合明确拒绝 |

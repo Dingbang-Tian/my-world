@@ -1,6 +1,9 @@
 package com.dingbang.myworld.aiframework.protocol.openai;
 
 import com.dingbang.myworld.aiframework.api.ModelFinishReason;
+import com.dingbang.myworld.aiframework.api.ModelExecutionContext;
+import com.dingbang.myworld.aiframework.api.ModelGatewayException;
+import com.dingbang.myworld.aiframework.api.ExecutionControlException;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
 import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.api.ModelRequest;
@@ -32,6 +35,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
@@ -101,17 +105,20 @@ public final class OpenAiChatGateway implements ModelGateway {
     public void generate(ModelRequest request, ModelEventListener listener) {
         Objects.requireNonNull(request, "模型请求不能为 null");
         Objects.requireNonNull(listener, "模型监听器不能为 null");
+        /** 本次调用的取消、截止时间与输出保护。 */
+        ModelExecutionContext context = request.getExecutionContext();
         try {
+            context.checkActive();
             /** 由本地 modelId 选中的固定模型实例。 */
             OpenAiChatModelConfig config = models.get(request.getModelId());
             if (config == null) {
-                throw new IllegalArgumentException("未知模型标识: " + request.getModelId());
+                throw new ModelGatewayException("CONFIGURATION_ERROR", "未知模型标识: " + request.getModelId());
             }
             /** 构造已校验的完整请求体。 */
             String body = mapper.writeValueAsString(buildBody(request, config));
             /** 本轮独立的 HTTP 请求。 */
             HttpRequest httpRequest = HttpRequest.newBuilder(config.getEndpoint())
-                    .timeout(Duration.ofSeconds(90))
+                    .timeout(requestTimeout(context))
                     .header("Authorization", "Bearer " + config.getApiKey())
                     .header("Content-Type", "application/json")
                     .header("Accept", "text/event-stream")
@@ -120,21 +127,35 @@ public final class OpenAiChatGateway implements ModelGateway {
             HttpResponse<InputStream> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             /** 由当前 HTTP 响应持有的流。 */
             try (InputStream stream = response.body()) {
-                if (response.statusCode() != 200) {
-                    throw new OpenAiChatProtocolException("模型 HTTP 请求失败，状态码: " + response.statusCode(),
-                            response.statusCode());
+                /** 取消时关闭当前网络流的注销动作。 */
+                Runnable unregister = context.getCancellation().onCancel(() -> {
+                    try {
+                        stream.close();
+                    } catch (IOException ignored) {
+                        // 关闭过程的错误由运行终态决定。
+                    }
+                });
+                try {
+                    context.checkActive();
+                    if (response.statusCode() != 200) {
+                        throw new OpenAiChatProtocolException("模型 HTTP 请求失败，状态码: " + response.statusCode(),
+                                response.statusCode());
+                    }
+                    /** 当前请求私有的分片聚合状态。 */
+                    StreamAccumulator accumulator = new StreamAccumulator(listener, context);
+                    readEvents(stream, accumulator, context);
+                    context.checkActive();
+                    listener.onEvent(new TurnCompleted(accumulator.complete()));
+                    listener.onComplete();
+                } finally {
+                    unregister.run();
                 }
-                /** 当前请求私有的分片聚合状态。 */
-                StreamAccumulator accumulator = new StreamAccumulator(listener);
-                readEvents(stream, accumulator);
-                listener.onEvent(new TurnCompleted(accumulator.complete()));
-                listener.onComplete();
             }
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            listener.onError(exception);
+            reportError(listener, context, exception);
         } catch (IOException | RuntimeException exception) {
-            listener.onError(exception);
+            reportError(listener, context, exception);
         }
     }
 
@@ -172,7 +193,7 @@ public final class OpenAiChatGateway implements ModelGateway {
                 /** 已在 Agent 端生成的参数 Schema。 */
                 JsonNode schema = mapper.readTree(definition.getParameterSchemaJson());
                 if (!schema.isObject()) {
-                    throw new IllegalArgumentException("工具参数 Schema 必须是 JSON 对象");
+                    throw new ModelGatewayException("INVALID_REQUEST", "工具参数 Schema 必须是 JSON 对象");
                 }
                 function.set("parameters", schema);
             }
@@ -201,7 +222,7 @@ public final class OpenAiChatGateway implements ModelGateway {
     private void encodeMessage(ArrayNode target, Message message, OpenAiChatModelConfig config) {
         if (message.getRole() == Role.TOOL) {
             if (!message.getContentBlocks().isEmpty() || message.getToolResults().size() != 1) {
-                throw new IllegalArgumentException("Chat 工具消息必须只包含一个工具结果");
+                throw new ModelGatewayException("INVALID_REQUEST", "Chat 工具消息必须只包含一个工具结果");
             }
             /** 与调用标识配对的工具结果。 */
             ToolResult result = message.getToolResults().get(0);
@@ -221,7 +242,7 @@ public final class OpenAiChatGateway implements ModelGateway {
             return;
         }
         if (!message.getToolResults().isEmpty()) {
-            throw new IllegalArgumentException("非工具消息不能包含工具结果");
+            throw new ModelGatewayException("INVALID_REQUEST", "非工具消息不能包含工具结果");
         }
         /** 协议对话消息。 */
         ObjectNode node = target.addObject();
@@ -231,7 +252,7 @@ public final class OpenAiChatGateway implements ModelGateway {
         /** 当前消息内容块。 */
         for (ContentBlock block : message.getContentBlocks()) {
             if (!(block instanceof TextContentBlock)) {
-                throw new IllegalArgumentException("OpenAI Chat 当前仅支持文本内容块");
+                throw new ModelGatewayException("UNSUPPORTED_CAPABILITY", "OpenAI Chat 当前仅支持文本内容块");
             }
             content.append(((TextContentBlock) block).getText());
         }
@@ -267,14 +288,22 @@ public final class OpenAiChatGateway implements ModelGateway {
      * @param stream HTTP 响应流
      * @param accumulator 当前请求的分片状态
      */
-    private void readEvents(InputStream stream, StreamAccumulator accumulator) throws IOException {
+    private void readEvents(InputStream stream, StreamAccumulator accumulator,
+                            ModelExecutionContext context) throws IOException {
         /** UTF-8 SSE 行读取器。 */
         BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
         /** 当前事件的 data 行。 */
         StringBuilder data = new StringBuilder();
-        /** 当前读取的行。 */
+        /** 用于限制心跳和 JSON 协议开销的总接收字符数。 */
+        long wireCharacters = 0;
+        /** 当前读取的有界行。 */
         String line;
-        while ((line = reader.readLine()) != null) {
+        while ((line = readBoundedLine(reader, context)) != null) {
+            context.checkActive();
+            wireCharacters += line.length();
+            if (wireCharacters > Math.max(65536L, (long) context.getMaxOutputCharacters() * 32L)) {
+                throw new ExecutionControlException("LIMIT_EXCEEDED", "模型流协议数据达到上限");
+            }
             if (line.isEmpty()) {
                 if (data.length() > 0) {
                     accumulator.accept(data.toString());
@@ -299,12 +328,84 @@ public final class OpenAiChatGateway implements ModelGateway {
     }
 
     /**
+     * 逐字符读取 SSE 行并在分配过大内存前拒绝异常长行。
+     *
+     * @param reader HTTP 流读取器
+     * @param context 当前调用预算
+     * @return 去掉换行的行，EOF 时为 null
+     * @throws IOException 读取失败时
+     */
+    private String readBoundedLine(BufferedReader reader, ModelExecutionContext context) throws IOException {
+        /** 当前有界行内容。 */
+        StringBuilder line = new StringBuilder();
+        /** 单行最大允许字符数。 */
+        long maximum = Math.max(65536L, (long) context.getMaxOutputCharacters() * 8L);
+        /** 下一个字符。 */
+        int next;
+        while ((next = reader.read()) != -1) {
+            if ((line.length() & 1023) == 0) {
+                context.checkActive();
+            }
+            if (next == '\n') {
+                return line.toString();
+            }
+            if (next != '\r') {
+                line.append((char) next);
+                if (line.length() > maximum) {
+                    throw new ExecutionControlException("LIMIT_EXCEEDED", "模型流单行达到上限");
+                }
+            }
+        }
+        return line.isEmpty() ? null : line.toString();
+    }
+
+    /**
+     * 在网络错误时优先保留运行控制原因。
+     *
+     * @param listener 模型观察者
+     * @param context 当前调用边界
+     * @param error 原始网络错误
+     */
+    private void reportError(ModelEventListener listener, ModelExecutionContext context, Throwable error) {
+        try {
+            context.checkActive();
+            listener.onError(error);
+        } catch (ExecutionControlException stopped) {
+            listener.onError(stopped);
+        }
+    }
+
+    /**
+     * 将 HTTP 等待时间与全局 deadline 取较短值。
+     *
+     * @param context 当前调用边界
+     * @return HTTP 请求时限
+     */
+    private Duration requestTimeout(ModelExecutionContext context) {
+        if (context.getDeadline() == null) {
+            return Duration.ofSeconds(90);
+        }
+        /** 全局剩余时间。 */
+        Duration remaining = Duration.between(Instant.now(), context.getDeadline());
+        if (remaining.isNegative() || remaining.isZero()) {
+            throw new ExecutionControlException("TIMEOUT", "模型调用超过全局截止时间");
+        }
+        return remaining.compareTo(Duration.ofSeconds(90)) < 0 ? remaining : Duration.ofSeconds(90);
+    }
+
+    /**
      * 聚合一次请求内的内容、推理、工具调用及最终用量。
      */
     private final class StreamAccumulator {
 
         /** 接收增量事件的监听器。 */
         private final ModelEventListener listener;
+
+        /** 当前调用的执行保护。 */
+        private final ModelExecutionContext context;
+
+        /** 当前响应的模型内容字符数。 */
+        private long contentCharacters;
 
         /** 完整回答文本。 */
         private final StringBuilder content = new StringBuilder();
@@ -331,9 +432,11 @@ public final class OpenAiChatGateway implements ModelGateway {
          * 创建当前请求的聚合器。
          *
          * @param listener 接收增量的监听器
+         * @param context 当前调用预算
          */
-        private StreamAccumulator(ModelEventListener listener) {
+        private StreamAccumulator(ModelEventListener listener, ModelExecutionContext context) {
             this.listener = listener;
+            this.context = context;
         }
 
         /**
@@ -342,13 +445,19 @@ public final class OpenAiChatGateway implements ModelGateway {
          * @param data 事件数据
          */
         private void accept(String data) throws IOException {
+            context.checkActive();
             if ("[DONE]".equals(data)) {
                 done = true;
                 return;
             }
             /** 本次事件 JSON。 */
-            JsonNode chunk = mapper.readTree(data);
-            if (!chunk.isObject()) {
+            JsonNode chunk;
+            try {
+                chunk = mapper.readTree(data);
+            } catch (IOException exception) {
+                throw new OpenAiChatProtocolException("模型流 JSON 无效", 0);
+            }
+            if (chunk == null || !chunk.isObject()) {
                 throw new OpenAiChatProtocolException("模型流事件必须是 JSON 对象", 0);
             }
             if (chunk.hasNonNull("error")) {
@@ -383,6 +492,7 @@ public final class OpenAiChatGateway implements ModelGateway {
                     if (delta.path("content").isTextual()) {
                         /** 本次回答文本增量。 */
                         String text = delta.get("content").asText();
+                        count(text);
                         content.append(text);
                         if (!text.isEmpty()) {
                             listener.onEvent(new TextDelta(text));
@@ -391,6 +501,7 @@ public final class OpenAiChatGateway implements ModelGateway {
                     if (delta.path("reasoning_content").isTextual()) {
                         /** 本次推理文本增量。 */
                         String text = delta.get("reasoning_content").asText();
+                        count(text);
                         reasoning.append(text);
                         if (!text.isEmpty()) {
                             listener.onEvent(new ReasoningDelta(text));
@@ -407,6 +518,7 @@ public final class OpenAiChatGateway implements ModelGateway {
                             /** 当前索引的工具分片。 */
                             ToolParts parts = tools.computeIfAbsent(index, ignored -> new ToolParts());
                             if (call.path("id").isTextual()) {
+                                count(call.get("id").asText());
                                 parts.id.append(call.get("id").asText());
                             }
                             if (call.path("type").isTextual() && !"function".equals(call.get("type").asText())) {
@@ -415,9 +527,11 @@ public final class OpenAiChatGateway implements ModelGateway {
                             /** 函数名称和参数片段。 */
                             JsonNode function = call.path("function");
                             if (function.path("name").isTextual()) {
+                                count(function.get("name").asText());
                                 parts.name.append(function.get("name").asText());
                             }
                             if (function.path("arguments").isTextual()) {
+                                count(function.get("arguments").asText());
                                 parts.arguments.append(function.get("arguments").asText());
                             }
                         }
@@ -429,6 +543,18 @@ public final class OpenAiChatGateway implements ModelGateway {
                     }
                     finishReason = normalizeFinishReason(choice.get("finish_reason").asText());
                 }
+            }
+        }
+
+        /**
+         * 累加模型内容并在追加到缓冲区前检查上限。
+         *
+         * @param value 新的模型内容片段
+         */
+        private void count(String value) {
+            contentCharacters += value.length();
+            if (contentCharacters > context.getMaxOutputCharacters()) {
+                throw new ExecutionControlException("LIMIT_EXCEEDED", "模型输出达到字符上限");
             }
         }
 

@@ -35,6 +35,9 @@ public final class ModelRequest {
     /** 本次调用的可选覆盖值。 */
     private final ModelOptions options;
 
+    /** 本次调用的截止时间、取消信号和响应预算。 */
+    private final ModelExecutionContext executionContext;
+
     /**
      * 校验模型标识并复制消息列表。
      *
@@ -68,6 +71,20 @@ public final class ModelRequest {
      */
     public ModelRequest(String modelId, List<Message> messages, List<ModelToolDefinition> tools,
                         ModelOptions options) {
+        this(modelId, messages, tools, options, ModelExecutionContext.defaults());
+    }
+
+    /**
+     * 固定完整请求与运行级执行边界。
+     *
+     * @param modelId 模型标识
+     * @param messages 消息快照
+     * @param tools 授权工具
+     * @param options 本次选项
+     * @param executionContext 截止时间、取消与输出保护
+     */
+    public ModelRequest(String modelId, List<Message> messages, List<ModelToolDefinition> tools,
+                        ModelOptions options, ModelExecutionContext executionContext) {
         if (StringUtils.isBlank(modelId)) {
             throw new IllegalArgumentException("模型标识不能为空");
         }
@@ -81,6 +98,7 @@ public final class ModelRequest {
         Objects.requireNonNull(tools, "工具说明列表不能为 null").forEach(Objects::requireNonNull);
         this.tools = Collections.unmodifiableList(new ArrayList<>(tools));
         this.options = Objects.requireNonNull(options, "模型选项不能为 null");
+        this.executionContext = Objects.requireNonNull(executionContext, "执行上下文不能为 null");
     }
 
 }

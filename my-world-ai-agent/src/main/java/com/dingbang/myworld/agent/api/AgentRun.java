@@ -25,11 +25,25 @@ public interface AgentRun {
     String getSessionId();
 
     /**
-     * 注册当前运行的事件监听器，并立即回放最近保留的事件。
+     * 注册当前运行的事件监听器，异步回放完整可用历史；历史缺口会抛出可识别错误。
      *
      * @param listener 接收事件和结束通知的监听器
      */
     void subscribe(AgentEventListener listener);
+
+    /**
+     * 从指定序号之后异步回放；序号零表示从头订阅。
+     *
+     * @param listener 事件消费者
+     * @param afterSequence 已成功接收的最后序号
+     * @throws AgentEventException 请求的历史已被淘汰或序号无效时
+     */
+    void subscribe(AgentEventListener listener, long afterSequence);
+
+    /**
+     * 幂等结束运行并通知模型和工具停止；执行前也可取消。
+     */
+    void cancel();
 
     /**
      * 取得同一次运行的最终结果 Future；运行失败也返回 FAILED 结果。

@@ -19,4 +19,13 @@ public interface AgentEventListener {
      * 接收 Agent 事件序列结束通知。
      */
     void onComplete();
+
+    /**
+     * 接收当前订阅的慢消费者或调度失败错误；运行结果仍可独立查询。
+     *
+     * @param error 当前订阅错误
+     */
+    default void onError(AgentEventException error) {
+        onComplete();
+    }
 }

@@ -17,7 +17,7 @@ public interface AgentService {
     AgentRun prepare(AgentRequest request);
 
     /**
-     * 准备、执行并阻塞等待最终结果；当前阶段没有超时限制。
+     * 准备、执行并阻塞等待最终结果；最多等待可信定义中的全局时限完成终态判定。
      *
      * @param request 用户请求
      * @return 完整 Agent 结果，执行失败时状态为 FAILED

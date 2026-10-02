@@ -30,5 +30,9 @@ public enum AgentEventType {
     /**
      * 模型回合数达到限制。
      */
-    LIMIT_EXCEEDED
+    LIMIT_EXCEEDED,
+    /** 用户取消运行。 */
+    CANCELLED,
+    /** 全局截止时间已到。 */
+    TIMED_OUT
 }

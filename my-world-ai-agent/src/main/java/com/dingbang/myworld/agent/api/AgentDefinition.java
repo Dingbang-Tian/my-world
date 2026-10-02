@@ -62,6 +62,9 @@ public final class AgentDefinition {
      */
     private final int maxModelTurns;
 
+    /** 整次运行的可信预算。 */
+    private final AgentLimits limits;
+
     /**
      * 创建不可变定义；省略模板标识时使用公共系统模板。
      *
@@ -96,6 +99,26 @@ public final class AgentDefinition {
     public AgentDefinition(String appId, String agentId, String name, String description,
                            String modelId, String promptTemplateId, List<String> toolIds,
                            List<String> skillIds, int maxModelTurns) {
+        this(appId, agentId, name, description, modelId, promptTemplateId, toolIds, skillIds,
+                AgentLimits.defaults(maxModelTurns));
+    }
+
+    /**
+     * 创建具有完整运行预算的可信定义。
+     *
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param name 显示名称
+     * @param description 职责描述
+     * @param modelId 模型标识
+     * @param promptTemplateId 模板标识，可为空
+     * @param toolIds 授权工具
+     * @param skillIds 启用技能
+     * @param limits 整次运行预算
+     */
+    public AgentDefinition(String appId, String agentId, String name, String description,
+                           String modelId, String promptTemplateId, List<String> toolIds,
+                           List<String> skillIds, AgentLimits limits) {
         if (StringUtils.isBlank(appId) || StringUtils.isBlank(agentId)
                 || StringUtils.isBlank(name) || StringUtils.isBlank(modelId)) {
             throw new IllegalArgumentException("应用、Agent、名称和模型标识不能为空");
@@ -109,13 +132,11 @@ public final class AgentDefinition {
         this.description = Objects.requireNonNull(description, "Agent 描述不能为 null");
         this.modelId = modelId;
         this.promptTemplateId = promptTemplateId == null ? "agent/system" : promptTemplateId;
-        if (maxModelTurns < 1) {
-            throw new IllegalArgumentException("最大模型回合数必须大于零");
-        }
+        this.limits = Objects.requireNonNull(limits, "运行预算不能为 null");
         Objects.requireNonNull(toolIds, "工具标识不能为 null").forEach(Objects::requireNonNull);
         Objects.requireNonNull(skillIds, "技能标识不能为 null").forEach(Objects::requireNonNull);
         this.toolIds = Collections.unmodifiableList(new ArrayList<>(toolIds));
         this.skillIds = Collections.unmodifiableList(new ArrayList<>(skillIds));
-        this.maxModelTurns = maxModelTurns;
+        this.maxModelTurns = limits.getMaxModelTurns();
     }
 }

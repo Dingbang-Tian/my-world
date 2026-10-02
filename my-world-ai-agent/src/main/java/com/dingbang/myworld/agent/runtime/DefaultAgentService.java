@@ -24,7 +24,7 @@ import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ForkJoinPool;
+
 
 /**
  * 用固定 Agent 定义、提示词仓库和单次模型入口实现公共 Agent 服务。
@@ -80,7 +80,7 @@ public final class DefaultAgentService implements AgentService {
     public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
                                Collection<AgentDefinition> definitions) {
         // 默认使用 JDK 公共线程池，使 execute 可以立即返回而不阻塞调用 Agent 的线程。
-        this(gateway, prompts, definitions, ForkJoinPool.commonPool());
+        this(gateway, prompts, definitions, AgentExecutors.WORK);
     }
 
     /**
