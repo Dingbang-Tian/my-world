@@ -1,4 +1,4 @@
-package com.dingbang.myworld.aiframework.model.content.contentImpl;
+package com.dingbang.myworld.aiframework.model.content;
 
 import com.dingbang.myworld.aiframework.model.content.ContentBlock;
 import com.dingbang.myworld.common.utils.lang.StringUtils;

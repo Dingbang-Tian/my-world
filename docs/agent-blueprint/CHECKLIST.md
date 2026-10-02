@@ -9,14 +9,14 @@
 | ID | 必须保留的能力 | 参考位置 | 目标模块/阶段 | 实现与证据 |
 |---|---|---|---|---|
 | F01 | Agent 名称、描述、模型、工具和技能定义 | agent/AgentClient | ai-agent，S04/S05/S06 | 待完成 |
-| F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai-framework/ai-agent，S02/S04/S07/S08 | S02 部分完成：`ModelGateway`、`ModelEvent`、`ModelTurn` 及 `ModelGatewayContractTest` 4/4，验证本地假模型单轮增量与完整结果；同步 Agent 调用、真实协议与取消仍待后续阶段 |
+| F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai-framework/ai-agent，S02/S04/S07/S08 | S02 单轮契约与 S04 `AgentService.run`、`AgentRun.subscribe/getResult` 已由本地假模型验证；真实协议和取消仍待后续阶段 |
 | F03 | 工具完整闭环与调用结果回传 | 各模型的 handleToolCallsAndContinue 等方法 | ai-agent，S06 | 待完成 |
-| F04 | 工具注解、参数解析和 JSON Schema | core/tool/ToolDescriptor/ToolParam/annotations | ai-agent，S05 | 待完成 |
-| F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | 待完成 |
+| F04 | 工具注解、参数解析和 JSON Schema | core/tool/ToolDescriptor/ToolParam/annotations | ai-agent，S05 | `agent/tool/ToolDescriptor`、`tool/annotation`、`ToolRegistry` 已支持字符串、数值、布尔、枚举和列表/数组并严格校验；`ToolExecutorTest` 本地验证，协议适配待 S07 |
+| F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | `ToolExecutor` 发布 PREPARING/CALLING/COMPLETED/FAILED，监听器异常被隔离，普通失败生成结构化 `ToolResult`；接入 Agent 事件与取消待 S06/S08 |
 | F06 | 工具异常反馈给模型，供模型修正 | ToolExecutor.handleToolError | ai-agent，S06 | 待完成 |
 | F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | 待完成 |
 | F08 | 关闭技能与内置工具，作为普通客户端使用 | AgentClient.clearAllSkills、getAllTools | ai-agent，S06/S09 | 待完成 |
-| F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | 待完成 |
+| F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S04 已验证进程内 USER/ASSISTANT 完整交换与下一轮上下文；工具消息及持久化待 S06/S09/S18 |
 | F10 | Token/轮次触发摘要、摘要回注、压缩事件 | AgentClientSession.summarizeHistory* | ai-agent，S15 | 待完成 |
 | F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | 待完成 |
 | F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | 待完成 |
@@ -124,9 +124,9 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 
 | ID | 输入/故障 | 应观察的结果 |
 |---|---|---|
-| A01 | 无工具普通任务 | 只有一次模型调用，返回完整文本，流事件不重复 |
+| A01 | 无工具普通任务 | 只有一次模型调用，返回完整文本，流事件不重复；S04 本地假模型已验证 1 次订阅、2 条增量和 1 个完成事件，真实协议待 S07 |
 | A02 | 需要一个工具的任务 | assistant call → tool result → 第二轮回答，callId 配对 |
-| A03 | 工具参数非法 | 工具不执行；模型获得可识别错误；可在预算内修正 |
+| A03 | 工具参数非法 | 工具不执行；模型获得可识别错误；可在预算内修正；S05 已验证校验失败不执行并返回 `TOOL_VALIDATION_ERROR`，回传模型及修正待 S06 |
 | A04 | 生成一个小型 Java 程序 | 文件在指定临时 workspace 创建；命令验证；结果列出产物 |
 | A05 | 插入/替换/追加/移动/删除 | 十二工具对应行为和边界全部有验证 |
 | A06 | 两步骤计划有数据依赖 | 后一步真实接收前一步结果；失败状态准确 |
@@ -134,11 +134,11 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 | A08 | 对话超压缩阈值 | 原始历史仍可查；下一请求使用摘要；工具交换完整 |
 | A09 | 会话正常关闭后重启 | 从数据库恢复用户、assistant、tool 及摘要，继续回答 |
 | A10 | 外部副作用后模拟落库失败 | 恢复识别不确定状态，不自动重复写入/执行命令 |
-| A11 | 模型断流/任务取消/命令超时 | 唯一对应终态、Future 结束、后续工具未启动、资源回收 |
-| A12 | 两会话使用不同模型参数 | 配置和历史互不污染；同会话并发请求有冲突结果 |
+| A11 | 模型断流/任务取消/命令超时 | 唯一对应终态、Future 结束、后续工具未启动、资源回收；S04 本地模型错误已验证 FAILED 结果和 Future 完成，取消与命令超时待 S08/S12 |
+| A12 | 两会话使用不同模型参数 | 配置和历史互不污染；同会话并发请求有冲突结果；S04 已验证同会话 `SESSION_BUSY`，不同模型参数隔离待 S07/S09 |
 | A13 | 同一任务分别接三协议 fixture | 上层循环无需修改，模型消息语义一致 |
 | A14 | 两类 Embedding 输入 | 向量/索引/usage 正确，非法模型类型和媒体组合明确拒绝 |
-| A15 | 项目覆盖默认提示词并重启 | 本次请求使用新版本，代码无需改动，模板 hash 可追踪；S03 已验证 YAML/应用/默认优先级、重新构建仓库后 hash 变化和旧快照稳定，接入实际 Agent 请求仍待 S04 |
+| A15 | 项目覆盖默认提示词并重启 | 本次请求使用新版本，代码无需改动，模板 hash 可追踪；S03 已验证覆盖优先级与快照，S04 已用本地假模型验证新建服务后的请求 SYSTEM 文本和结果 hash 随文件版本变化，真实进程重启待后续集成验证 |
 | A16 | 新建一个自定义工具和模拟协议 | 注册后可用，Agent 核心无新增供应商 switch 或业务判断 |
 | A17 | 独立 Maven 消费者依赖 Agent | 普通 JAR 可运行，无需依赖启动模块或 codegen 内部类 |
 | A18 | 既有普通对话和 ENC 配置 | 原功能回归通过，凭据不进入默认日志和会话导出 |

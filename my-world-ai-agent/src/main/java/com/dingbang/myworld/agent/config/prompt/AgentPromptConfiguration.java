@@ -1,4 +1,4 @@
-package com.dingbang.myworld.agent.config;
+package com.dingbang.myworld.agent.config.prompt;
 
 import com.dingbang.myworld.agent.prompt.PromptRepository;
 import com.dingbang.myworld.agent.prompt.PromptTemplateContributor;
@@ -39,7 +39,7 @@ public class AgentPromptConfiguration {
         // 当前阶段只接入一个应用提供者；多个提供者会由 Spring 报出歧义。
         PromptTemplateContributor contributor = contributors.getIfAvailable();
         Map<String, PromptTemplateSpec> application = contributor == null
-                ? Collections.emptyMap() : contributor.templates();
+                ? Collections.emptyMap() : contributor.getTemplates();
         Map<String, PromptTemplateSpec> project = new LinkedHashMap<>();
         if (properties.getPrompts() != null) {
             for (Map.Entry<String, PromptTemplateSpec> entry : properties.getPrompts().entrySet()) {

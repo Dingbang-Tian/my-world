@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/02（S03 已完成工程验证，等待学习复述）。
+最后更新：2026/10/02（S05 已完成工程验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S04；S03 已完成优先级和授权边界复述，变量渲染边界待复述，S02 主线已理解，S00/S01 仍有待复述内容。
-- 当前阶段已实现内容：S03 公共 Agent 模板资源、项目 YAML 与应用资源覆盖、模板快照及 SYSTEM 消息构造；尚未接入 Agent SDK 或工具循环。
+- 下一阶段：S06；S04 已能指出 `events` 观察、`execute` 执行，`prepare` 与完整历史的细节已讲解并待复述；S03 变量渲染边界待复述，S02 主线已理解，S00/S01 仍有待复述内容。
+- 当前阶段已实现内容：S05 工具描述、注解、参数 Schema、注册与授权快照、严格参数校验、执行及结构化结果；S04 无工具 Agent 运行仍保持原行为，S06 才接入工具循环。
 - 当前阻塞：无 S01 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；后续 Maven 命令需显式使用本机 JDK 21。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S03.md](notes/S03.md)。JDK 21 下全项目 23 个测试通过，其中 S03 新增 9 个；未调用真实模型。
+- 本次交付与证据：见 [notes/S05.md](notes/S05.md)。JDK 21 下全项目 36 个测试通过，其中 S05 新增 7 个；未调用真实模型。
 
 ## 2. 阶段状态
 
@@ -22,8 +22,8 @@
 | S01 | 模块与装配 | 已验证 | 待回答 | [notes/S01.md](notes/S01.md) |
 | S02 | 模型契约与假模型 | 已验证 | 已掌握 | [notes/S02.md](notes/S02.md) |
 | S03 | 提示词配置 | 已验证 | 待回答 | [notes/S03.md](notes/S03.md) |
-| S04 | Agent SDK 普通对话 | 未开始 | 未开始 | — |
-| S05 | 工具系统 | 未开始 | 未开始 | — |
+| S04 | Agent SDK 普通对话 | 已验证 | 待回答 | [notes/S04.md](notes/S04.md) |
+| S05 | 工具系统 | 已验证 | 待回答 | [notes/S05.md](notes/S05.md) |
 | S06 | Agent 循环 | 未开始 | 未开始 | — |
 | S07 | Chat 协议 | 未开始 | 未开始 | — |
 | S08 | 流式、取消、预算 | 未开始 | 未开始 | — |
@@ -58,7 +58,7 @@
 
 用户已确认：AI 模块分离 Spring AI 与自研框架、SDK 接入、codegen 收敛在 ai-app/codegen、完整功能保留、配置提示词、后续热更新。
 
-图纸默认：单次模型适配器 + 唯一 Agent 循环；沿用现有普通对话；Reactor 事件；本地 JDBC/H2；顺序编排；按阶段教学。它们来自工程规划，修改时记录证据即可，不把它们误称为用户逐项作出的选择。
+图纸默认：单次模型适配器 + 唯一 Agent 循环；沿用现有普通对话；Java 监听器事件；本地 JDBC/H2；顺序编排；按阶段教学。它们来自工程规划，修改时记录证据即可，不把它们误称为用户逐项作出的选择。
 
 | 日期 | 决策/变更 | 原因与证据 | 影响阶段 | 状态 |
 |---|---|---|---|---|
@@ -68,8 +68,12 @@
 | 2026/10/01 | 装配 smoke 由 JUnit 显式启动 Spring Boot 上下文，使用无 Mockito 的假模型与测试用占位 Key | 本机 Mockito inline 自行附加失败；最终 smoke 1/1 通过且未调用模型 | S01 测试 | 已验证 |
 | 2026/10/01 | S02 数据契约使用 Java 8 风格普通不可变类；空白字符串与空集合判断复用 common 工具包；Javadoc 统一为多行 | 用户明确提出风格要求；JDK 21 下契约测试和现有回归共 14/14 通过 | S02 及后续 Java 代码 | 已验证 |
 | 2026/10/01 | S02 值对象保留 `final`，统一使用 Lombok `@Data`；接口和实现拆成顶层文件 | 字段全部为 `final`，不会生成 setter；`@Data` 统一生成 getter、值比较和 `toString`；`ContentBlock`/`TextContentBlock`、`ModelEvent`/`TextDelta`/`TurnCompleted` 等不使用内部类；JDK 21 下回归测试通过 | S02 数据对象 | 已验证 |
-| 2026/10/01 | 新增 `my-world-ai-framework`，迁移 S02 契约；`my-world-ai` 恢复为 Spring AI 接入模块 | framework 只依赖 common、Reactor 和 Lombok；agent 依赖 framework，不再导入 `SpringAiConfiguration`；clean test 和离线依赖树通过，framework/agent 编译依赖中没有 Spring AI | S01/S02 模块边界 | 已验证 |
+| 2026/10/01 | 新增 `my-world-ai-framework`，迁移 S02 契约；`my-world-ai` 恢复为 Spring AI 接入模块 | framework 只依赖 common、Lombok；agent 依赖 framework，不再导入 `SpringAiConfiguration`；clean test 和离线依赖树通过，framework/agent 编译依赖中没有 Spring AI | S01/S02 模块边界 | 已验证 |
+| 2026/10/02 | 按用户要求移除自研 framework 与 agent 的 Reactor API | `ModelGateway` 改为 Java 8 监听器回调；`AgentRun` 改为 `subscribe(listener)`；保留 JDK 后台执行、有限回放、唯一执行、失败终态和 `CompletionStage`；完整 clean test 通过 | S02/S04 可读性与模块依赖 | 已验证 |
 | 2026/10/02 | S03 模板按项目 YAML > 应用资源 > 公共默认资源合并，启动时冻结内容与 hash | `PromptTemplateRegistryTest` 和 `AgentPromptConfigurationTest` 9/9，包含文件变更后重建仓库、SYSTEM 角色与无效配置启动失败 | S03/S04/S15 | 已验证 |
+| 2026/10/02 | S04 `prepare` 固定模板与会话，`execute` 唯一启动模型；事件与 Future 共享同一运行 | `DefaultAgentServiceTest` 6/6，含多观察者、历史、失败、会话忙、工具调用拒绝和模板新版本请求 | S04–S09 | 已验证 |
+| 2026/10/02 | 保留 `ModelGateway`、`AgentService/AgentRun` 与模型 `Message/ToolCall/ToolResult` 的职责命名；工具注解入 `tool/annotation`，事件和文本实现收平无职责的 `*Impl` 包 | 对照真实单次模型、运行 API、模型消息和 Java 工具边界；包调整后全项目构建验证 | S02–S07 | 已验证 |
+| 2026/10/02 | S05 工具类型由 `Tool<P>.parameterType()` 显式提供；注册时拒绝不支持的参数结构，运行按授权快照解析与执行 | `ToolExecutorTest` 覆盖成功、非法参数、未知/冲突工具、异常、枚举/列表及显式描述 | S05–S06 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -109,9 +113,9 @@
 
 ```text
 阶段：S02 单次模型消息与假模型
-目标与已跑通流程：ModelRequest → ScriptedModelGateway 冷流 → TextDelta → 唯一 TurnCompleted(ModelTurn)
-已改文件（路径/核心方法）：my-world-ai-framework 的 aiframework/model、aiframework/api 契约、ModelEventStreams.requireCompleted、ScriptedModelGateway、ModelGatewayContractTest；my-world-ai 下的 S02 文件已移除；详见 notes/S02.md
-新增依赖或配置：无；复用 Reactor、Lombok 和 my-world-common 工具包
+目标与已跑通流程：ModelRequest → ScriptedModelGateway.generate → ModelEventListener 回调 TextDelta → 唯一 TurnCompleted(ModelTurn) → onComplete
+已改文件（路径/核心方法）：my-world-ai-framework 的 aiframework/model、aiframework/api 契约、ModelEventListener/ValidatingModelEventListener、ScriptedModelGateway、ModelGatewayContractTest；my-world-ai 下的 S02 文件已移除；详见 notes/S02.md
+新增依赖或配置：无；使用 JDK 监听器、Lombok 和 my-world-common 工具包
 验证命令、结果和环境：JDK 21 下 mvn -q test 成功；S02 4/4，原有 10/10，共 14/14
 对照 CHECKLIST 的条目及证据：F02 的单轮流式及完整结果契约完成一部分；真实协议、Agent 最终结果与取消尚未完成；framework/agent 编译依赖未引入 Spring AI
 来源实现与新实现的差异：参考 LLMModel 中的工具处理没有搬进模型适配器；新契约显式保留 SYSTEM 和完整工具调用数据
@@ -139,7 +143,41 @@
 下一步具体动作：先核对 S03 理解问题，再实施 S04 无工具 Agent 对话
 ```
 
-## 9. 后续阶段交接模板
+## 9. S04 阶段交接
+
+```text
+阶段：S04 公共 Agent API 与无工具对话
+目标与已跑通流程：prepare → 订阅事件 → execute → SYSTEM/USER 单次模型请求 → 文本增量事件 → 完整助手结果与进程内历史
+已改文件（路径/核心方法）：ai-agent 的 api 包、runtime 包；AgentService.prepare/run、DefaultAgentRun.execute/complete/fail；详见 notes/S04.md
+新增依赖或配置：framework 与 ai-agent 移除 reactor-core；运行时由消费方提供 ModelGateway、PromptRepository 与 AgentDefinition 集合，可选传入 JDK Executor，无新外部凭据配置
+验证命令、结果和环境：JDK 21 下 mvn -q clean test 成功；S04 6/6，原有 23/23，共 29/29；本地脚本模型，无真实供应商调用
+对照 CHECKLIST 的条目及证据：A01 本地无工具流程已验证；F02、F09、A11、A12、A15 相应基础部分完成，真实协议、工具、取消和持久化仍待后续阶段
+来源实现与新实现的差异：参考 AgentClientSession.command/executeCommand 与 AgentSessionResult；新 API 显式区分准备、观察、启动及同一 Future，未复制源码
+未完成工作／真实阻塞：S05 工具系统未开始；真实供应商适配、取消、持久化分属后续阶段；无已确认 S05 实施阻塞
+本阶段用户已理解的内容：待回答；工程测试通过不等于学习掌握
+待用户回答的问题：见 notes/S04.md 的三个理解问题；S03 变量渲染边界仍待复述
+下一会话最先读取的文件：本 PROGRESS.md、notes/S04.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S05
+下一步具体动作：核对 S04 回答后实施 S05 工具定义、注册、参数解析和执行
+```
+
+## 10. S05 阶段交接
+
+```text
+阶段：S05 工具定义、注册、参数和执行
+目标与已跑通流程：Java Tool → ToolDescriptor/Schema → ToolRegistry 授权快照 → ToolCall JSON 严格解析 → Java execute → 同 callId 的 ToolResult 与阶段事件
+已改文件（路径/核心方法）：ai-agent 的 tool/、tool/annotation/；framework 的简单事件和文本内容实现包收平；ToolExecutorTest；详见 notes/S05.md
+新增依赖或配置：ai-agent 显式声明已有版本的 jackson-databind；不引入真实模型凭据
+验证命令、结果和环境：JDK 21 下 mvn -q clean test 成功；S05 7/7，全项目 36/36；本地 Java 工具，没有远程模型调用
+对照 CHECKLIST 的条目及证据：F04 的注解与参数 Schema、F05 的工具阶段与结构化错误已有本地证据；A03 校验失败不执行已验证，模型纠正待 S06
+来源实现与新实现的差异：参考从 execute 方法反射找参数类且有宽松解析；目标显式 parameterType、未知字段拒绝、可信上下文不进入模型 JSON；未复制源码
+未完成工作／真实阻塞：S06 尚未将工具描述与 ToolExecutor 接入 Agent 循环；模型协议适配和取消分属 S07/S08；无已确认 S06 实施阻塞
+本阶段用户已理解的内容：待回答；工程测试通过不等于学习掌握
+待用户回答的问题：见 notes/S05.md 的三个理解问题；S03/S04 复述仍待用户反馈
+下一会话最先读取的文件：本 PROGRESS.md、notes/S05.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S06
+下一步具体动作：实现一次工具调用后继续模型的唯一 Agent 循环，并验证 assistant/tool 的 callId 配对历史
+```
+
+## 11. 后续阶段交接模板
 
 ```text
 阶段：
@@ -158,7 +196,7 @@
 
 每阶段另存 `notes/Sxx.md`，包含调用链、事件/消息示例、测试证据和理解问题的回答。不要把完整源码、API Key、个人文件内容复制进学习笔记。
 
-## 10. 收尾检查
+## 12. 收尾检查
 
 - [ ] 所有必做阶段都有真实验证记录。
 - [ ] CHECKLIST 的保留功能和 A01–A18 场景均有证据。

@@ -21,7 +21,8 @@ my-world-ai / com.dingbang.myworld.ai
 my-world-ai-agent / com.dingbang.myworld.agent
   api/                  AgentService、AgentRun、请求、结果、事件、查询和异常
   runtime/              唯一 Agent 循环、执行状态、取消、限额
-  tool/                 工具接口、注解、描述、注册、校验、执行、策略
+  tool/                 工具接口、描述、注册、校验、执行与事件
+    annotation/         供工具实现类和参数字段使用的注解
   skill/                工具组合及使用说明
   prompt/               模板加载、变量渲染、默认值、快照
   session/              会话、消息追加、并发控制、序列化
@@ -46,6 +47,8 @@ my-world-app / com.dingbang.myworld
 
 公共工具机制归 agent；具有操作系统副作用的代码生成工具归 ai-app/codegen；`create_plan` 和 `create_sub_agent` 归 agent/orchestration。以后其他应用可选择注册这些工具或提供自己的实现，agent 无需反向导入应用类。
 
+命名按真实职责区分：`ModelGateway` 是单次模型调用入口，`AgentService/AgentRun` 是一次 Agent 运行的公共 API，`ToolCall/ToolResult` 属于模型消息数据，`Tool/ToolRegistry/ToolExecutor` 属于可信 Java 工具机制。当前无独立的远程 Agent 客户端职责，因此不引入泛化的 `agent/client`；模型消息数据也不改称 `AgentMessage`。简单事件和文本内容实现与接口同包，避免仅为 `eventImpl/contentImpl` 增加一层包。
+
 公共 API 的请求／结果放 framework 或 agent 的 api 包；扩展者还可使用明确标为扩展契约的 tool、skill、prompt、persistence 接口。公开契约使用顶层接口和实现类，不把内部实现类、Spring AI 模型对象或数据库连接暴露给调用方。
 
 ## 2. 单次模型接口
@@ -54,15 +57,15 @@ my-world-app / com.dingbang.myworld
 
 | 契约 | 输入／输出与职责 |
 |---|---|
-| ModelGateway | 根据 modelId 查找适配器，对单次 ModelRequest 返回 Flux<ModelEvent> |
+| ModelGateway | 根据 modelId 查找适配器，执行 `generate(request, listener)` 并通过 `ModelEventListener` 回调事件 |
 | ModelRequest | modelId、消息快照、工具描述列表、调用级选项、deadline、关联 ID |
 | ModelOptions | thinkingEnabled（可空）、temperature（可空）、maxOutputTokens 等；不修改共享模型配置 |
-| ModelEvent | TextDelta、ReasoningDelta、ToolCallDelta、Usage、TurnCompleted；异常通过流错误通道传播 |
+| ModelEvent | TextDelta、ReasoningDelta、ToolCallDelta、Usage、TurnCompleted；异常通过 `listener.onError(error)` 传播 |
 | ModelTurn | 完整 assistant 消息、完整工具调用列表、标准化结束原因、本轮用量、必要的协议元数据 |
 | ModelCapabilities | streaming、tools、reasoning、image/audio/video/document、embedding 等能力声明 |
 | EmbeddingGateway | 单独的向量输入输出契约，不能拿向量模型发起聊天 |
 
-一次订阅触发一次模型调用；runtime 每一轮只订阅一次，不再另调同步方法取结果。ModelTurn 是该轮完整结果的真相来源，文本 delta 用于展示，不能把二者重复追加到历史。
+一次 `generate(request, listener)` 调用触发一次模型调用。适配器必须按顺序回调零到多条事件，最后恰好调用一次 `onComplete()` 或 `onError(error)`；runtime 每轮只调用一次，不再另调同步方法取结果。ModelTurn 是该轮完整结果的真相来源，文本 delta 用于展示，不能把二者重复追加到历史。
 
 providerId、protocol、modelId 不混为一谈：同一协议可接多个供应商，同一供应商可配置多个模型实例。自定义协议通过实现适配器和注册器接入，不通过每加一个供应商就修改核心 switch。
 
@@ -93,13 +96,13 @@ ToolCall 至少包含 callId、name、argumentsJson；ToolResult 包含 callId�
 |---|---|
 | AgentService.prepare(request) → AgentRun | 校验和构建运行句柄；不启动模型或工具执行 |
 | AgentRun.execute() | 显式启动一次；第二次调用拒绝，不能重复发请求 |
-| AgentRun.events() → Flux<AgentEvent> | 观察同一运行的事件；订阅本身不启动第二次执行 |
-| AgentRun.result() → CompletionStage<AgentResult> | 同一运行的最终结果；正常、失败、取消都能结束，不永久悬挂 |
+| AgentRun.subscribe(listener) | 注册同一运行的事件监听器，并回放有限历史；注册本身不启动第二次执行 |
+| AgentRun.getResult() → CompletionStage<AgentResult> | 同一运行的最终结果；正常、失败、取消都能结束，不永久悬挂 |
 | AgentRun.cancel() | 幂等取消，传递到模型订阅、子任务和受管进程 |
 | AgentService.run(request) → AgentResult | 同步便利入口，内部 prepare/execute/等待；文档明确阻塞及超时 |
 | SessionService | 创建、查询、导出／导入会话，按 owner/app 校验访问边界 |
 
-默认 SDK 使用流程：prepare → 注册事件观察者 → execute → 等待 result。Reactor 调度线程不执行阻塞进程读取或 JDBC；在明确的执行器中调度阻塞工作。
+默认 SDK 使用流程：prepare → `subscribe(listener)` → execute → 等待 result。`DefaultAgentRun` 使用 JDK `Executor` 调度模型调用；阻塞进程读取或 JDBC 应在明确的执行器中调度。
 
 AgentRequest 至少包含 appId、agentId、sessionId（可空则新建）、用户输入、附件、requestId 和经过授权的上下文。modelId、工具集、工作目录、限制从可信 AgentDefinition 或 SDK 调用上下文解析，不能任由 Web 用户传入任意工具与本地路径。
 

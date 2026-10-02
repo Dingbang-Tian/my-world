@@ -108,7 +108,7 @@ public final class PromptTemplateRegistry implements PromptRepository {
      * @return 不可修改的标识集合
      */
     @Override
-    public Set<String> keys() {
+    public Set<String> getKeys() {
         return snapshots.keySet();
     }
 

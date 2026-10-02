@@ -1,7 +1,7 @@
 package com.dingbang.myworld.agent.prompt;
 
 import com.dingbang.myworld.aiframework.model.Role;
-import com.dingbang.myworld.aiframework.model.content.contentImpl.TextContentBlock;
+import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.core.io.DefaultResourceLoader;
@@ -39,7 +39,7 @@ class PromptTemplateRegistryTest {
         variables.put("skillInstructions", "无");
         variables.put("runtimeContext", "本地测试");
 
-        assertThat(repository.keys()).containsExactly("agent/system", "agent/plan-step", "agent/summary", "agent/sub-agent");
+        assertThat(repository.getKeys()).containsExactly("agent/system", "agent/plan-step", "agent/summary", "agent/sub-agent");
         assertThat(snapshot.getRequiredVariables()).containsExactly("agentName", "agentDescription", "skillInstructions", "runtimeContext");
         assertThat(snapshot.getContentHash()).hasSize(64);
         assertThat(snapshot.toSystemMessage("system-1", variables).getRole()).isEqualTo(Role.SYSTEM);
@@ -140,7 +140,7 @@ class PromptTemplateRegistryTest {
         PromptRepository repository = registry(Collections.emptyMap(),
                 Collections.singletonMap("agent/sub-agent", disabled));
 
-        assertThat(repository.keys()).doesNotContain("agent/sub-agent");
+        assertThat(repository.getKeys()).doesNotContain("agent/sub-agent");
         assertThatThrownBy(() -> repository.get("agent/sub-agent"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("已禁用");
     }

@@ -1,4 +1,4 @@
-package com.dingbang.myworld.aiframework.api.event.eventImpl;
+package com.dingbang.myworld.aiframework.api.event;
 
 import com.dingbang.myworld.aiframework.api.event.ModelEvent;
 import lombok.Data;

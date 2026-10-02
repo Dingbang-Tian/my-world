@@ -24,5 +24,5 @@ public interface PromptRepository {
      *
      * @return 不可修改的模板标识集合
      */
-    Set<String> keys();
+    Set<String> getKeys();
 }

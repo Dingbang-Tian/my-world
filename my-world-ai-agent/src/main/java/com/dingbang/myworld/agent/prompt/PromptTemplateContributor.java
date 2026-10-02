@@ -15,5 +15,5 @@ public interface PromptTemplateContributor {
      *
      * @return 模板覆盖映射
      */
-    Map<String, PromptTemplateSpec> templates();
+    Map<String, PromptTemplateSpec> getTemplates();
 }

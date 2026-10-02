@@ -1,0 +1,207 @@
+package com.dingbang.myworld.agent.runtime;
+
+import com.dingbang.myworld.agent.api.AgentDefinition;
+import com.dingbang.myworld.agent.api.AgentRequest;
+import com.dingbang.myworld.agent.api.AgentResult;
+import com.dingbang.myworld.agent.api.AgentRun;
+import com.dingbang.myworld.agent.api.AgentService;
+import com.dingbang.myworld.agent.prompt.PromptRepository;
+import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
+import com.dingbang.myworld.aiframework.api.ModelGateway;
+import com.dingbang.myworld.aiframework.model.Message;
+import com.dingbang.myworld.common.utils.collection.CollectionUtils;
+
+import java.util.Collection;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
+
+/**
+ * 用固定 Agent 定义、提示词仓库和单次模型入口实现公共 Agent 服务。
+ *
+ * @author Sebastian
+ * @since 2026/10/02
+ */
+public final class DefaultAgentService implements AgentService {
+
+    /**
+     * 单次模型调用入口。
+     */
+    private final ModelGateway gateway;
+
+    /**
+     * 执行模型调用的 JDK 后台执行器。
+     */
+    private final Executor executor;
+
+    /**
+     * 已加载的提示词仓库。
+     */
+    private final PromptRepository prompts;
+
+    /**
+     * 按应用和 Agent 标识固定的定义集合。
+     */
+    private final Map<String, Map<String, AgentDefinition>> definitions;
+
+    /**
+     * 当前进程的会话历史。
+     */
+    private final Map<String, InMemoryAgentSession> sessions = new ConcurrentHashMap<>();
+
+    /**
+     * 创建不依赖具体模型供应商的 Agent 服务。
+     *
+     * @param gateway 单次模型调用入口
+     * @param prompts 提示词仓库
+     * @param definitions 可用 Agent 定义
+     * @throws IllegalArgumentException 定义集合为空或含重复身份时
+     */
+    public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
+                               Collection<AgentDefinition> definitions) {
+        // 默认使用 JDK 公共线程池，使 execute 可以立即返回而不阻塞调用 Agent 的线程。
+        this(gateway, prompts, definitions, ForkJoinPool.commonPool());
+    }
+
+    /**
+     * 创建可指定后台执行器的 Agent 服务。
+     *
+     * @param gateway 单次模型调用入口
+     * @param prompts 提示词仓库
+     * @param definitions 可用 Agent 定义
+     * @param executor 执行模型调用的后台执行器
+     * @throws IllegalArgumentException 定义集合为空或含重复身份时
+     */
+    public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
+                               Collection<AgentDefinition> definitions, Executor executor) {
+        this.gateway = Objects.requireNonNull(gateway, "模型入口不能为 null");
+        this.prompts = Objects.requireNonNull(prompts, "提示词仓库不能为 null");
+        this.executor = Objects.requireNonNull(executor, "模型执行器不能为 null");
+        if (CollectionUtils.isEmpty(definitions)) {
+            throw new IllegalArgumentException("至少需要一个 Agent 定义");
+        }
+        // 先按应用分组，再按 Agent 标识索引，运行时无需遍历全部定义。
+        Map<String, Map<String, AgentDefinition>> byApp = new LinkedHashMap<>();
+        for (AgentDefinition definition : definitions) {
+            Objects.requireNonNull(definition, "Agent 定义不能为 null");
+            Map<String, AgentDefinition> byAgent = byApp.computeIfAbsent(
+                    definition.getAppId(), ignored -> new LinkedHashMap<>());
+            if (byAgent.putIfAbsent(definition.getAgentId(), definition) != null) {
+                throw new IllegalArgumentException("应用中存在重复 Agent: " + definition.getAgentId());
+            }
+        }
+        // 构造完成后冻结定义，避免运行中的模型、模板身份被调用方修改。
+        Map<String, Map<String, AgentDefinition>> frozen = new LinkedHashMap<>();
+        for (Map.Entry<String, Map<String, AgentDefinition>> entry : byApp.entrySet()) {
+            frozen.put(entry.getKey(), Collections.unmodifiableMap(new LinkedHashMap<>(entry.getValue())));
+        }
+        this.definitions = Collections.unmodifiableMap(frozen);
+    }
+
+    /**
+     * 固定 Agent、会话和模板快照，创建未执行的运行句柄。
+     *
+     * @param request 用户请求
+     * @return 未启动的 Agent 运行
+     * @throws IllegalArgumentException Agent 或既有会话不存在、归属不符时
+     */
+    @Override
+    public AgentRun prepare(AgentRequest request) {
+        Objects.requireNonNull(request, "Agent 请求不能为 null");
+        // prepare 只固定本轮输入和会话，不会调用 ModelGateway。
+        // 从可信定义集合解析身份，用户请求不能自行指定模型或模板。
+        Map<String, AgentDefinition> application = definitions.get(request.getAppId());
+        AgentDefinition definition = application == null ? null : application.get(request.getAgentId());
+        if (definition == null) {
+            throw new IllegalArgumentException("未知的应用或 Agent");
+        }
+        // 在准备阶段预分配标识，模型调用仍要等到 AgentRun.execute()。
+        String sessionId = request.getSessionId() == null ? UUID.randomUUID().toString() : request.getSessionId();
+        String runId = UUID.randomUUID().toString();
+
+        // 当前 run 固定模板内容和 hash，运行期间的配置变化不会影响它。
+        PromptTemplateSnapshot template = prompts.get(definition.getPromptTemplateId());
+        Map<String, String> variables = promptVariables(definition, request, sessionId, runId);
+        Message system = template.toSystemMessage(runId + ":system", variables);
+
+        // 新会话在此登记；既有会话则校验它属于当前应用和 Agent。
+        InMemoryAgentSession session = sessionFor(request, sessionId);
+        return new DefaultAgentRun(runId, sessionId, definition, request, system, template, session, gateway,
+                executor);
+    }
+
+    /**
+     * 准备、启动并阻塞等待同一次运行结果。
+     *
+     * @param request 用户请求
+     * @return 已完成的 Agent 结果
+     */
+    @Override
+    public AgentResult run(AgentRequest request) {
+        // 同步入口复用相同的运行句柄和事件链，不再额外创建模型请求。
+        AgentRun agentRun = prepare(request);
+        agentRun.execute();
+
+        // 仅在同步便利入口阻塞；异步调用方可直接使用 AgentRun.getResult()。
+        return agentRun.getResult().toCompletableFuture().join();
+    }
+
+    /**
+     * 创建新会话或校验既有会话的应用归属。
+     *
+     * @param request 用户请求
+     * @param sessionId 本次使用的会话标识
+     * @return 进程内会话
+     * @throws IllegalArgumentException 既有会话未知或归属不符时
+     */
+    private InMemoryAgentSession sessionFor(AgentRequest request, String sessionId) {
+        if (request.getSessionId() == null) {
+            // 请求未提供会话标识时，使用 prepare 已生成的标识创建内存会话。
+            InMemoryAgentSession session = new InMemoryAgentSession(request.getAppId(), request.getAgentId());
+            sessions.put(sessionId, session);
+            return session;
+        }
+        // 既有会话必须先存在，再检查其归属，不能只凭 sessionId 直接访问。
+        InMemoryAgentSession session = sessions.get(sessionId);
+        if (session == null) {
+            throw new IllegalArgumentException("未知的会话标识");
+        }
+        session.requireOwner(request.getAppId(), request.getAgentId());
+        return session;
+    }
+
+    /**
+     * 构造只包含可信定义和运行标识的系统模板变量。
+     *
+     * @param definition Agent 定义
+     * @param request 用户请求
+     * @param sessionId 会话标识
+     * @param runId 运行标识
+     * @return 模板变量快照
+     */
+    private Map<String, String> promptVariables(AgentDefinition definition, AgentRequest request,
+                                                 String sessionId, String runId) {
+        Map<String, String> variables = new LinkedHashMap<>();
+        // 这里的全部变量来自服务端定义或运行上下文，用户文本不允许替换 SYSTEM 模板。
+        // Agent 身份来自服务端定义，作为 SYSTEM 模板的可信输入。
+        variables.put("agentName", definition.getName());
+        variables.put("agentDescription", definition.getDescription());
+
+        // Skill 和运行环境在后续阶段由实际注册信息及执行上下文替换。
+        variables.put("skillInstructions", "无");
+        variables.put("runtimeContext", "无");
+
+        // 运行关联字段可供项目自定义模板引用，用户输入不会写入 SYSTEM 模板。
+        variables.put("appId", request.getAppId());
+        variables.put("agentId", request.getAgentId());
+        variables.put("sessionId", sessionId);
+        variables.put("runId", runId);
+        return Collections.unmodifiableMap(variables);
+    }
+}

@@ -1,4 +1,4 @@
-package com.dingbang.myworld.agent.config;
+package com.dingbang.myworld.agent.config.prompt;
 
 import com.dingbang.myworld.agent.prompt.PromptTemplateSpec;
 import lombok.Data;

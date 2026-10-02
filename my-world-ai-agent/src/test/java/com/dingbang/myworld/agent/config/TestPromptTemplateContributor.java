@@ -22,7 +22,7 @@ public final class TestPromptTemplateContributor implements PromptTemplateContri
      * @return 应用模板覆盖配置
      */
     @Override
-    public Map<String, PromptTemplateSpec> templates() {
+    public Map<String, PromptTemplateSpec> getTemplates() {
         // 测试资源模拟应用模块自带的模板文件。
         Map<String, PromptTemplateSpec> templates = new LinkedHashMap<>();
         PromptTemplateSpec system = new PromptTemplateSpec();

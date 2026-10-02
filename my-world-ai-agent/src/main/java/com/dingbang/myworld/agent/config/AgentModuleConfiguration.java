@@ -1,5 +1,6 @@
 package com.dingbang.myworld.agent.config;
 
+import com.dingbang.myworld.agent.config.prompt.AgentPromptConfiguration;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 

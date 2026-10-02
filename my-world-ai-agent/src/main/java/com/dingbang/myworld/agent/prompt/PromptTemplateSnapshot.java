@@ -2,7 +2,7 @@ package com.dingbang.myworld.agent.prompt;
 
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
-import com.dingbang.myworld.aiframework.model.content.contentImpl.TextContentBlock;
+import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
 import com.dingbang.myworld.common.utils.lang.StringUtils;
 import lombok.Data;
 
