@@ -1,6 +1,7 @@
 package com.dingbang.myworld.agent.api;
 
 import com.dingbang.myworld.agent.tool.ToolExecutionEvent;
+import com.dingbang.myworld.aiframework.api.ModelTokenUsage;
 import lombok.Data;
 
 import java.time.Instant;
@@ -55,6 +56,9 @@ public final class AgentEvent {
      */
     private final ToolExecutionEvent toolExecution;
 
+    /** 单次模型调用用量，仅 USAGE 事件时非 null。 */
+    private final ModelTokenUsage usage;
+
     /**
      * 创建一次运行事件。
      *
@@ -87,6 +91,25 @@ public final class AgentEvent {
     public AgentEvent(String runId, String sessionId, long sequence, Instant timestamp,
                       AgentEventType type, String text, AgentResult result,
                       ToolExecutionEvent toolExecution) {
+        this(runId, sessionId, sequence, timestamp, type, text, result, toolExecution, null);
+    }
+
+    /**
+     * 创建包含模型用量的运行事件。
+     *
+     * @param runId 运行标识
+     * @param sessionId 会话标识
+     * @param sequence 运行内顺序号
+     * @param timestamp 事件时间
+     * @param type 事件类型
+     * @param text 文本或推理增量
+     * @param result 终态结果
+     * @param toolExecution 工具阶段信息
+     * @param usage 单次模型用量
+     */
+    public AgentEvent(String runId, String sessionId, long sequence, Instant timestamp,
+                      AgentEventType type, String text, AgentResult result,
+                      ToolExecutionEvent toolExecution, ModelTokenUsage usage) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         if (sequence < 1) {
@@ -95,19 +118,26 @@ public final class AgentEvent {
         this.sequence = sequence;
         this.timestamp = Objects.requireNonNull(timestamp, "事件时间不能为 null");
         this.type = Objects.requireNonNull(type, "事件类型不能为 null");
-        if (type == AgentEventType.TEXT_DELTA && (text == null || result != null || toolExecution != null)) {
+        if ((type == AgentEventType.TEXT_DELTA || type == AgentEventType.REASONING_DELTA)
+                && (text == null || result != null || toolExecution != null || usage != null)) {
             throw new IllegalArgumentException("文本事件必须只包含文本增量");
         }
         if (type == AgentEventType.TOOL_EXECUTION
-                && (text != null || result != null || toolExecution == null)) {
+                && (text != null || result != null || toolExecution == null || usage != null)) {
             throw new IllegalArgumentException("工具事件必须只包含工具阶段");
         }
-        if (type != AgentEventType.TEXT_DELTA && type != AgentEventType.TOOL_EXECUTION
-                && (text != null || result == null || toolExecution != null)) {
+        if (type == AgentEventType.USAGE
+                && (text != null || result != null || toolExecution != null || usage == null)) {
+            throw new IllegalArgumentException("用量事件必须只包含模型用量");
+        }
+        if (type != AgentEventType.TEXT_DELTA && type != AgentEventType.REASONING_DELTA
+                && type != AgentEventType.TOOL_EXECUTION && type != AgentEventType.USAGE
+                && (text != null || result == null || toolExecution != null || usage != null)) {
             throw new IllegalArgumentException("终态事件必须只包含最终结果");
         }
         this.text = text;
         this.result = result;
         this.toolExecution = toolExecution;
+        this.usage = usage;
     }
 }

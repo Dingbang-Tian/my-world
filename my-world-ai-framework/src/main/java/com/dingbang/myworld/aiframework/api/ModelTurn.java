@@ -26,6 +26,9 @@ public final class ModelTurn {
      */
     private final ModelFinishReason finishReason;
 
+    /** 本轮完整用量，可因供应商未提供而为空。 */
+    private final ModelTokenUsage usage;
+
     /**
      * 校验完整结果只能包含助手消息及匹配的工具结束原因。
      *
@@ -35,8 +38,20 @@ public final class ModelTurn {
      * @throws NullPointerException 当结果字段为 null 时
      */
     public ModelTurn(Message assistantMessage, ModelFinishReason finishReason) {
+        this(assistantMessage, finishReason, null);
+    }
+
+    /**
+     * 固定完整助手消息、结束原因和最终用量。
+     *
+     * @param assistantMessage 完整助手消息
+     * @param finishReason 标准化结束原因
+     * @param usage 本轮用量，供应商未提供时为 null
+     */
+    public ModelTurn(Message assistantMessage, ModelFinishReason finishReason, ModelTokenUsage usage) {
         this.assistantMessage = Objects.requireNonNull(assistantMessage, "助手消息不能为 null");
         this.finishReason = Objects.requireNonNull(finishReason, "结束原因不能为 null");
+        this.usage = usage;
         if (assistantMessage.getRole() != Role.ASSISTANT) {
             throw new IllegalArgumentException("模型完整结果必须包含助手消息");
         }

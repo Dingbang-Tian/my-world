@@ -5,6 +5,8 @@ import com.dingbang.myworld.ai.adapter.SpringAiChatAdapter;
 import com.dingbang.myworld.ai.application.AiChatService;
 import com.dingbang.myworld.ai.config.SpringAiConfiguration;
 import com.dingbang.myworld.aiapp.config.AiApplicationConfiguration;
+import com.dingbang.myworld.aiframework.api.ModelGateway;
+import com.dingbang.myworld.aiframework.protocol.openai.OpenAiChatGateway;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.WebApplicationType;
@@ -24,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ModuleAssemblySmokeTest {
 
     /**
-     * 验证模块配置链和普通对话服务均已装配，且无需调用远程模型。
+     * 验证模块配置链、普通对话服务和显式启用的 Chat 网关均已装配，且无需调用远程模型。
      */
     @Test
     void loadsModuleChainAndExistingChatService() {
@@ -33,13 +35,19 @@ class ModuleAssemblySmokeTest {
                 MyWorldApplication.class, FakeModelConfiguration.class)
                 .web(WebApplicationType.NONE)
                 .profiles("test")
-                .properties("spring.config.name=s01-smoke")
+                .properties("spring.config.name=s01-smoke",
+                        "my-world.ai.chat.enabled=true",
+                        "my-world.ai.chat.models.fixture.provider-id=local",
+                        "my-world.ai.chat.models.fixture.endpoint=http://127.0.0.1:1/v1/chat/completions",
+                        "my-world.ai.chat.models.fixture.model=wire-model",
+                        "my-world.ai.chat.models.fixture.api-key=test-only-key")
                 .run();
         try (context) {
             assertThat(context.getBean(AiApplicationConfiguration.class)).isNotNull();
             assertThat(context.getBean(AgentModuleConfiguration.class)).isNotNull();
             assertThat(context.getBean(SpringAiConfiguration.class)).isNotNull();
             assertThat(context.getBean(AiChatService.class)).isInstanceOf(SpringAiChatAdapter.class);
+            assertThat(context.getBean(ModelGateway.class)).isInstanceOf(OpenAiChatGateway.class);
         }
     }
 

@@ -1,6 +1,7 @@
 package com.dingbang.myworld.agent.api;
 
 import com.dingbang.myworld.aiframework.api.ModelFinishReason;
+import com.dingbang.myworld.aiframework.api.ModelTokenUsage;
 import com.dingbang.myworld.common.utils.lang.StringUtils;
 import lombok.Data;
 
@@ -60,6 +61,9 @@ public final class AgentResult {
      */
     private final String promptHash;
 
+    /** 本次运行已完成模型回合的用量合计，可为空。 */
+    private final ModelTokenUsage usage;
+
     /**
      * 创建带有运行关联与模板版本信息的最终结果。
      *
@@ -77,6 +81,27 @@ public final class AgentResult {
     public AgentResult(String runId, String sessionId, String requestId, AgentResultStatus status,
                        String finalText, ModelFinishReason finishReason, AgentError error,
                        String promptTemplateId, String promptHash) {
+        this(runId, sessionId, requestId, status, finalText, finishReason, error,
+                promptTemplateId, promptHash, null);
+    }
+
+    /**
+     * 创建包含本次运行已完成模型回合用量的最终结果。
+     *
+     * @param runId 运行标识
+     * @param sessionId 会话标识
+     * @param requestId 请求标识
+     * @param status 运行终态
+     * @param finalText 完整回答，失败时为 null
+     * @param finishReason 模型结束原因，失败时可为 null
+     * @param error 结构化错误，成功时为 null
+     * @param promptTemplateId 系统模板标识
+     * @param promptHash 系统模板内容哈希
+     * @param usage 已完成模型回合的用量合计，可为 null
+     */
+    public AgentResult(String runId, String sessionId, String requestId, AgentResultStatus status,
+                       String finalText, ModelFinishReason finishReason, AgentError error,
+                       String promptTemplateId, String promptHash, ModelTokenUsage usage) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         this.requestId = Objects.requireNonNull(requestId, "请求标识不能为 null");
@@ -93,5 +118,6 @@ public final class AgentResult {
         this.error = error;
         this.promptTemplateId = Objects.requireNonNull(promptTemplateId, "模板标识不能为 null");
         this.promptHash = Objects.requireNonNull(promptHash, "模板哈希不能为 null");
+        this.usage = usage;
     }
 }

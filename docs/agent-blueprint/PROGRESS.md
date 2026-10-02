@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/02（S06 已完成工程验证，等待学习复述）。
+最后更新：2026/10/03（S07 已完成本地协议验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S07；S06 的工具调用消息与续问等待用户复述；S05 的工具边界、S04 的 `prepare` 与完整历史、S03 的变量渲染边界仍待复述，S02 主线已理解，S00/S01 仍有待复述内容。
-- 当前阶段已实现内容：S06 运行级工具与技能授权、模型可见工具 Schema、唯一 Agent 工具循环、callId 配对、结构化工具错误回传、完整进程内历史和模型回合上限。
+- 下一阶段：S08；S07 的供应商、协议和 modelId 区别等待用户复述；S06 及更早阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S07 OpenAI Chat 单次 HTTP/SSE 网关、modelId 注册、调用级选项、文本/推理/工具分片/usage 聚合、应用配置装配；既有 S06 Agent 循环无需修改续问逻辑。
 - 当前阻塞：无 S01 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；后续 Maven 命令需显式使用本机 JDK 21。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S06.md](notes/S06.md)。JDK 21 下全项目 40 个测试通过，其中 S06 新增 4 个；未调用真实模型。
+- 本次交付与证据：见 [notes/S07.md](notes/S07.md)。JDK 21 下全项目 45/45 测试通过，其中 S07 新增 5 个本地 HTTP fixture 测试；未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -25,7 +25,7 @@
 | S04 | Agent SDK 普通对话 | 已验证 | 待回答 | [notes/S04.md](notes/S04.md) |
 | S05 | 工具系统 | 已验证 | 待回答 | [notes/S05.md](notes/S05.md) |
 | S06 | Agent 循环 | 已验证 | 待回答 | [notes/S06.md](notes/S06.md) |
-| S07 | Chat 协议 | 未开始 | 未开始 | — |
+| S07 | Chat 协议 | 已验证 | 待回答 | [notes/S07.md](notes/S07.md) |
 | S08 | 流式、取消、预算 | 未开始 | 未开始 | — |
 | S09 | 会话与序列化 | 未开始 | 未开始 | — |
 | S10 | Codegen 与读取工具 | 未开始 | 未开始 | — |
@@ -75,6 +75,7 @@
 | 2026/10/02 | 保留 `ModelGateway`、`AgentService/AgentRun` 与模型 `Message/ToolCall/ToolResult` 的职责命名；工具注解入 `tool/annotation`，事件和文本实现收平无职责的 `*Impl` 包 | 对照真实单次模型、运行 API、模型消息和 Java 工具边界；包调整后全项目构建验证 | S02–S07 | 已验证 |
 | 2026/10/02 | S05 工具类型由 `Tool<P>.parameterType()` 显式提供；注册时拒绝不支持的参数结构，运行按授权快照解析与执行 | `ToolExecutorTest` 覆盖成功、非法参数、未知/冲突工具、异常、枚举/列表及显式描述 | S05–S06 | 已验证 |
 | 2026/10/02 | S06 在 `DefaultAgentRun` 内集中续问；模型请求只携带纯描述，工具执行前校验 callId 与回合上限 | `AgentToolLoopTest` 验证多调用配对、历史、参数纠错、重复标识与回合上限；全项目 clean test 通过 | S06–S08 | 已验证 |
+| 2026/10/03 | S07 以 JDK HttpClient 实现一次请求的 OpenAI Chat SSE 网关；Spring 应用只装配模型配置，工具执行仍由 Agent 负责 | 本地 HTTP fixture 覆盖分片、多工具索引、usage 尾块、HTTP 错误、断流、未知结束原因及实际 Agent 纠错闭环；全项目回归通过 | S07–S08 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -195,7 +196,24 @@
 下一步具体动作：核对 S06 消息轨迹复述后实现 S07 本地 HTTP/SSE fixture 与单次协议适配
 ```
 
-## 12. 后续阶段交接模板
+## 12. S07 阶段交接
+
+```text
+阶段：S07 接入 OpenAI Chat 协议
+目标与已跑通流程：ModelRequest → modelId 注册选择 → HTTP/SSE 分片聚合 → Agent 收到完整 TOOL_CALLS → 本地工具执行 → 再次 HTTP 请求 → 最终文本与用量
+已改文件（路径/核心方法）：framework 的 protocol/openai、ModelOptions、ModelTokenUsage、ReasoningDelta/UsageReported、ModelRequest/ModelTurn；agent 的 AgentEvent/AgentResult/DefaultAgentRun；ai-app 的 OpenAiChatConfiguration/Properties；测试与装配 smoke；详见 notes/S07.md
+新增依赖或配置：framework 显式声明 jackson-databind；ai-app 显式声明 spring-boot-autoconfigure；my-world.ai.chat.enabled 与 models.<modelId> 属性可装配网关，默认关闭
+验证命令、结果和环境：显式 JDK 21 下 mvn -q clean test 成功，45/45；本地 127.0.0.1 HTTP fixture；未调用真实供应商或使用凭据
+对照 CHECKLIST 的条目及证据：F02/F03/F04/F14/F15/F16 的 S07 范围、OpenAI Chat 与多模型配置的本地部分、A01/A02/A03/A12 的相应协议证据；取消及调试日志等留后续阶段
+来源实现与新实现的差异：协议层仅实现单次请求，工具回传与续问保持在 DefaultAgentRun；保留现有 SpringAiChatAdapter 的普通对话路径，未复制参考源码
+未完成工作／真实阻塞：S08 取消/超时/预算、真实供应商冒烟及其特定字段、S09 会话持久化尚未验证；无已确认 S08 实施阻塞
+本阶段用户已理解的内容：待回答；工程测试通过不等于学习掌握
+待用户回答的问题：见 notes/S07.md；S06 和更早阶段的待复述内容仍保留
+下一会话最先读取的文件：本 PROGRESS.md、notes/S07.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S08
+下一步具体动作：核对 S07 理解问题后实施 S08 的流式终态、取消、超时与预算
+```
+
+## 13. 后续阶段交接模板
 
 ```text
 阶段：
@@ -214,7 +232,7 @@
 
 每阶段另存 `notes/Sxx.md`，包含调用链、事件/消息示例、测试证据和理解问题的回答。不要把完整源码、API Key、个人文件内容复制进学习笔记。
 
-## 13. 收尾检查
+## 14. 收尾检查
 
 - [ ] 所有必做阶段都有真实验证记录。
 - [ ] CHECKLIST 的保留功能和 A01–A18 场景均有证据。

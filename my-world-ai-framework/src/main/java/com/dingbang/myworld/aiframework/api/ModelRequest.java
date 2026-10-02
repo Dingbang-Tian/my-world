@@ -32,6 +32,9 @@ public final class ModelRequest {
     /** 本轮允许模型调用的工具说明。 */
     private final List<ModelToolDefinition> tools;
 
+    /** 本次调用的可选覆盖值。 */
+    private final ModelOptions options;
+
     /**
      * 校验模型标识并复制消息列表。
      *
@@ -52,6 +55,19 @@ public final class ModelRequest {
      * @param tools 本轮授权工具说明
      */
     public ModelRequest(String modelId, List<Message> messages, List<ModelToolDefinition> tools) {
+        this(modelId, messages, tools, ModelOptions.empty());
+    }
+
+    /**
+     * 校验并复制完整请求，不修改共享模型配置。
+     *
+     * @param modelId 已配置的模型实例标识
+     * @param messages 本轮消息列表
+     * @param tools 本轮授权工具说明
+     * @param options 本次调用的选项覆盖值
+     */
+    public ModelRequest(String modelId, List<Message> messages, List<ModelToolDefinition> tools,
+                        ModelOptions options) {
         if (StringUtils.isBlank(modelId)) {
             throw new IllegalArgumentException("模型标识不能为空");
         }
@@ -64,6 +80,7 @@ public final class ModelRequest {
         this.messages = Collections.unmodifiableList(new ArrayList<>(messages));
         Objects.requireNonNull(tools, "工具说明列表不能为 null").forEach(Objects::requireNonNull);
         this.tools = Collections.unmodifiableList(new ArrayList<>(tools));
+        this.options = Objects.requireNonNull(options, "模型选项不能为 null");
     }
 
 }

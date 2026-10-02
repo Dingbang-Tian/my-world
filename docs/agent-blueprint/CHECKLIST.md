@@ -9,7 +9,7 @@
 | ID | 必须保留的能力 | 参考位置 | 目标模块/阶段 | 实现与证据 |
 |---|---|---|---|---|
 | F01 | Agent 名称、描述、模型、工具和技能定义 | agent/AgentClient | ai-agent，S04/S05/S06 | `AgentDefinition` 含可信模型、工具、技能和回合上限；S06 假模型验证授权工具与技能说明，业务级配置接入待后续阶段 |
-| F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai-framework/ai-agent，S02/S04/S07/S08 | S02 单轮契约与 S04 `AgentService.run`、`AgentRun.subscribe/getResult` 已由本地假模型验证；真实协议和取消仍待后续阶段 |
+| F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai-framework/ai-agent，S02/S04/S07/S08 | S07 `OpenAiChatGatewayTest` 与 `OpenAiChatAgentIntegrationTest` 已验证本地 HTTP/SSE、增量和最终结果；真实供应商与取消待验证 |
 | F03 | 工具完整闭环与调用结果回传 | 各模型的 handleToolCallsAndContinue 等方法 | ai-agent，S06 | `DefaultAgentRun` 统一追加 assistant/tool、执行工具并续问；`AgentToolLoopTest` 验证两个 callId 和最终文本；真实协议待 S07 |
 | F04 | 工具注解、参数解析和 JSON Schema | core/tool/ToolDescriptor/ToolParam/annotations | ai-agent，S05 | `agent/tool/ToolDescriptor`、`tool/annotation`、`ToolRegistry` 已支持字符串、数值、布尔、枚举和列表/数组并严格校验；`ToolExecutorTest` 本地验证，协议适配待 S07 |
 | F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | `ToolExecutor` 发布 PREPARING/CALLING/COMPLETED/FAILED；S06 映射为带 callId 的 Agent 事件并验证顺序，取消待 S08 |
@@ -21,9 +21,9 @@
 | F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | 待完成 |
 | F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | 待完成 |
 | F13 | 子 Agent 定义、独立会话、结果回传 | executeSubAgentTool、CreateSubAgentTool | ai-agent，S14 | 待完成 |
-| F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | 待完成 |
-| F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai-framework，S07/S16 | 待完成 |
-| F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | 待完成 |
+| F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | S07 `ModelOptions` 支持实例默认值与单次请求覆盖，本地双 modelId 测试验证不污染共享配置；会话层选项待 S09 |
+| F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai-framework，S07/S16 | S07 可传 `reasoning_effort`，解析 `reasoning_content` 增量并保留助手历史元数据；供应商特有 signature 与能力差异待 S16 |
+| F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | S07 解析 usage 尾块，发 `UsageReported`/Agent USAGE，完整回合与最终 AgentResult 保留并汇总已完成回合用量；父子去重与指标待 S14/S21 |
 | F17 | 可开关的请求与 SSE 调试信息 | LLMRequestDebugLogger | ai-framework，S07/S21 | 待完成 |
 | F18 | 环境上下文提示、附件与多模态消息 | buildSystemContext、MessageAttachment 等 | agent/ai-framework/codegen，S10/S16 | 待完成 |
 
@@ -52,14 +52,14 @@
 
 | 协议/能力 | 验收要求 | 阶段 | 实现与证据 |
 |---|---|---|---|
-| OpenAI Chat 及兼容供应商 | 单次请求、SSE、tool calls、usage、取消、结束原因 | ai-framework，S07/S08 | 待完成 |
+| OpenAI Chat 及兼容供应商 | 单次请求、SSE、tool calls、usage、取消、结束原因 | ai-framework，S07/S08 | S07 本地 HTTP fixture 验证单次请求、SSE、多 index 分片、usage 尾块、结束原因、401/429/500 与断流；真实供应商及取消待 S08/独立冒烟 |
 | OpenAI Responses | 独立请求/事件/工具结果映射；与统一模型契约一致 | ai-framework，S16 | 待完成 |
 | Anthropic Messages | system、content blocks、tool_use/result、reasoning 元数据和完成事件 | ai-framework，S16 | 待完成 |
 | MiMo/Qwen 等参考兼容处理 | 实际字段与历史处理有 fixture，不依赖供应商名猜测全部能力 | ai-framework，S16 | 待完成 |
 | 附件和多模态聊天 | 根据参考实现列出具体媒体/协议支持表；不支持的组合显式拒绝 | ai-framework，S16 | 待完成 |
 | OpenAI Embedding | 批量文本、维度、索引、向量和 usage | ai-framework，S17 | 待完成 |
 | DashScope 多模态 Embedding | 文本、图片、视频、融合、维度与向量类型 | ai-framework，S17 | 待完成 |
-| 多模型配置/切换 | 通过 modelId 查找，请求参数隔离；不修改 singleton 来模拟会话选项 | ai-framework，S07/S16 | 待完成 |
+| 多模型配置/切换 | 通过 modelId 查找，请求参数隔离；不修改 singleton 来模拟会话选项 | ai-framework，S07/S16 | S07 `OpenAiChatGateway` 不可变注册表与应用配置绑定；本地两 modelId 及调用选项隔离已验证，跨协议路由待 S16 |
 | 自定义模型协议扩展 | 增加适配器及注册即通过契约，不改 Agent 循环 | ai-framework，S16/S22 | 待完成 |
 
 离线协议验证、真实供应商验证、平台执行验证分开记录。某平台/供应商没有环境可测，应保留未验证标记，不把缺凭据解释为接口已验证可用。
@@ -124,9 +124,9 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 
 | ID | 输入/故障 | 应观察的结果 |
 |---|---|---|
-| A01 | 无工具普通任务 | 只有一次模型调用，返回完整文本，流事件不重复；S04 本地假模型已验证 1 次订阅、2 条增量和 1 个完成事件，真实协议待 S07 |
-| A02 | 需要一个工具的任务 | S06 假模型已验证 assistant call → tool result → 第二轮回答，callId 配对；还覆盖同回合两个调用 |
-| A03 | 工具参数非法 | S06 假模型已验证工具不执行、`TOOL_VALIDATION_ERROR` 回传模型、随后修正调用成功；真实协议待 S07 |
+| A01 | 无工具普通任务 | S04 假模型与 S07 本地 HTTP fixture 验证单次文本请求、增量和完整回合；真实供应商待验证 |
+| A02 | 需要一个工具的任务 | S06 假模型覆盖同轮两个调用；S07 本地 HTTP/Agent 集成验证完整 callId 历史与续问 |
+| A03 | 工具参数非法 | S07 本地 HTTP/Agent 集成验证错误参数不执行 Java 工具、`TOOL_VALIDATION_ERROR` 回传模型，修正调用后仅执行一次 |
 | A04 | 生成一个小型 Java 程序 | 文件在指定临时 workspace 创建；命令验证；结果列出产物 |
 | A05 | 插入/替换/追加/移动/删除 | 十二工具对应行为和边界全部有验证 |
 | A06 | 两步骤计划有数据依赖 | 后一步真实接收前一步结果；失败状态准确 |
@@ -135,7 +135,7 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 | A09 | 会话正常关闭后重启 | 从数据库恢复用户、assistant、tool 及摘要，继续回答 |
 | A10 | 外部副作用后模拟落库失败 | 恢复识别不确定状态，不自动重复写入/执行命令 |
 | A11 | 模型断流/任务取消/命令超时 | 唯一对应终态、Future 结束、后续工具未启动、资源回收；S04 本地模型错误已验证 FAILED 结果和 Future 完成，取消与命令超时待 S08/S12 |
-| A12 | 两会话使用不同模型参数 | 配置和历史互不污染；同会话并发请求有冲突结果；S04 已验证同会话 `SESSION_BUSY`，不同模型参数隔离待 S07/S09 |
+| A12 | 两会话使用不同模型参数 | S04 已验证同会话 `SESSION_BUSY`；S07 直接 ModelRequest 验证两 modelId 和调用级选项隔离；两会话选项与历史联动待 S09 |
 | A13 | 同一任务分别接三协议 fixture | 上层循环无需修改，模型消息语义一致 |
 | A14 | 两类 Embedding 输入 | 向量/索引/usage 正确，非法模型类型和媒体组合明确拒绝 |
 | A15 | 项目覆盖默认提示词并重启 | 本次请求使用新版本，代码无需改动，模板 hash 可追踪；S03 已验证覆盖优先级与快照，S04 已用本地假模型验证新建服务后的请求 SYSTEM 文本和结果 hash 随文件版本变化，真实进程重启待后续集成验证 |

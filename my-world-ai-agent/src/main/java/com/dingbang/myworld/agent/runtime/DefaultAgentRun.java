@@ -20,10 +20,13 @@ import com.dingbang.myworld.aiframework.api.ModelGateway;
 import com.dingbang.myworld.aiframework.api.ModelRequest;
 import com.dingbang.myworld.aiframework.api.ModelToolDefinition;
 import com.dingbang.myworld.aiframework.api.ModelTurn;
+import com.dingbang.myworld.aiframework.api.ModelTokenUsage;
 import com.dingbang.myworld.aiframework.api.event.ModelEvent;
 import com.dingbang.myworld.aiframework.api.event.ModelEventListener;
 import com.dingbang.myworld.aiframework.api.event.ValidatingModelEventListener;
 import com.dingbang.myworld.aiframework.api.event.TextDelta;
+import com.dingbang.myworld.aiframework.api.event.ReasoningDelta;
+import com.dingbang.myworld.aiframework.api.event.UsageReported;
 import com.dingbang.myworld.aiframework.api.event.TurnCompleted;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
@@ -187,6 +190,9 @@ final class DefaultAgentRun implements AgentRun {
      */
     private List<Message> messages;
 
+    /** 已完成模型回合的 token 用量合计。 */
+    private volatile ModelTokenUsage usageTotal;
+
     /**
      * 保存准备阶段固定的运行输入。
      *
@@ -343,6 +349,9 @@ final class DefaultAgentRun implements AgentRun {
         }
         try {
             Objects.requireNonNull(turn, "模型未返回完整回合");
+            if (turn.getUsage() != null) {
+                usageTotal = usageTotal == null ? turn.getUsage() : usageTotal.plus(turn.getUsage());
+            }
             /** 完整助手消息。 */
             Message assistant = turn.getAssistantMessage();
             if (turn.getFinishReason() == ModelFinishReason.TOOL_CALLS) {
@@ -391,7 +400,7 @@ final class DefaultAgentRun implements AgentRun {
             // AgentResult 保留本轮实际使用的模板版本，便于后续追踪回答来源。
             AgentResult result = new AgentResult(runId, sessionId, request.getRequestId(),
                     AgentResultStatus.COMPLETED, finalText, turn.getFinishReason(), null,
-                    template.getTemplateId(), template.getContentHash());
+                    template.getTemplateId(), template.getContentHash(), usageTotal);
             finish(result, AgentEventType.COMPLETED);
         } catch (RuntimeException exception) {
             // 缺少完整回合、消息内容非法等都归为模型结果无效。
@@ -416,7 +425,7 @@ final class DefaultAgentRun implements AgentRun {
         AgentResult result = new AgentResult(runId, sessionId, request.getRequestId(),
                 AgentResultStatus.LIMIT_EXCEEDED, null, ModelFinishReason.TOOL_CALLS,
                 new AgentError("LIMIT_EXCEEDED", "模型回合数达到限制: " + definition.getMaxModelTurns()),
-                template.getTemplateId(), template.getContentHash());
+                template.getTemplateId(), template.getContentHash(), usageTotal);
         finish(result, AgentEventType.LIMIT_EXCEEDED);
     }
 
@@ -450,6 +459,10 @@ final class DefaultAgentRun implements AgentRun {
             }
             if (event instanceof TextDelta) {
                 emit(AgentEventType.TEXT_DELTA, ((TextDelta) event).getText(), null);
+            } else if (event instanceof ReasoningDelta) {
+                emit(AgentEventType.REASONING_DELTA, ((ReasoningDelta) event).getText(), null);
+            } else if (event instanceof UsageReported) {
+                emitUsage(((UsageReported) event).getUsage());
             } else if (event instanceof TurnCompleted) {
                 turn = ((TurnCompleted) event).getTurn();
             } else {
@@ -494,7 +507,7 @@ final class DefaultAgentRun implements AgentRun {
         // 失败也产出 AgentResult，而不是让 CompletionStage 永久异常或悬挂。
         AgentResult result = new AgentResult(runId, sessionId, request.getRequestId(),
                 AgentResultStatus.FAILED, null, null, new AgentError(code, message),
-                template.getTemplateId(), template.getContentHash());
+                template.getTemplateId(), template.getContentHash(), usageTotal);
         finish(result, AgentEventType.FAILED);
     }
 
@@ -547,6 +560,18 @@ final class DefaultAgentRun implements AgentRun {
         // 每个事件带同一 runId/sessionId 和单调递增 sequence，调用方可以按顺序重建轨迹。
         AgentEvent event = new AgentEvent(runId, sessionId, eventSequence.incrementAndGet(),
                 Instant.now(), type, text, result, toolEvent);
+        eventPublisher.publish(event);
+    }
+
+    /**
+     * 发布一次模型调用的最终用量。
+     *
+     * @param usage 单次模型用量
+     */
+    private void emitUsage(ModelTokenUsage usage) {
+        /** 带当前运行关联的用量事件。 */
+        AgentEvent event = new AgentEvent(runId, sessionId, eventSequence.incrementAndGet(),
+                Instant.now(), AgentEventType.USAGE, null, null, null, usage);
         eventPublisher.publish(event);
     }
 

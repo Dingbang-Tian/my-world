@@ -11,6 +11,10 @@ public enum AgentEventType {
      * 模型产生文本增量。
      */
     TEXT_DELTA,
+    /** 模型提供的推理文本增量。 */
+    REASONING_DELTA,
+    /** 单次模型调用的最终 token 用量。 */
+    USAGE,
     /**
      * 工具准备、调用、完成或失败阶段。
      */
