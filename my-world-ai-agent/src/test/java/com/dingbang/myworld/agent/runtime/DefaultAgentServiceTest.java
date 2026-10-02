@@ -195,18 +195,22 @@ class DefaultAgentServiceTest {
     }
 
     /**
-     * 验证无工具阶段显式拒绝工具回合且不会尝试执行工具。
+     * 验证未授权工具生成可识别的结果并交给模型修正。
      *
      * @throws Exception 等待测试运行失败时
      */
     @Test
-    void rejectsToolTurnUntilToolRuntimeExists() throws Exception {
+    void returnsUnknownToolResultToModel() throws Exception {
         // 假模型返回的工具调用助手消息。
         Message assistant = new Message("assistant-call", Role.ASSISTANT, Collections.emptyList(),
                 Collections.singletonList(new ToolCall("call-1", "add", "{\"a\":2,\"b\":3}")),
                 Collections.emptyList(), Collections.emptyMap());
         // 只返回工具回合的本地模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
+            if (request.getMessages().size() > 2) {
+                complete(listener, "assistant-fixed", "没有授权 add 工具");
+                return;
+            }
             listener.onEvent(new TurnCompleted(new ModelTurn(assistant, ModelFinishReason.TOOL_CALLS)));
             listener.onComplete();
         });
@@ -214,12 +218,16 @@ class DefaultAgentServiceTest {
         AgentRun run = service(gateway).prepare(new AgentRequest(
                 "app-1", "assistant", null, "request-1", "计算 2+3"));
         run.execute();
-        // 工具调用被拒绝后的结果。
+        // 模型根据未知工具错误修正后的结果。
         AgentResult result = run.getResult().toCompletableFuture().get(3, TimeUnit.SECONDS);
 
-        assertThat(result.getStatus()).isEqualTo(AgentResultStatus.FAILED);
-        assertThat(result.getError().getCode()).isEqualTo("UNSUPPORTED_TOOL_CALL");
-        assertThat(gateway.getCallCount()).isEqualTo(1);
+        assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
+        assertThat(gateway.getCallCount()).isEqualTo(2);
+        assertThat(gateway.getRequests().get(0).getTools()).isEmpty();
+        assertThat(gateway.getRequests().get(1).getMessages()).extracting(Message::getRole)
+                .containsExactly(Role.SYSTEM, Role.USER, Role.ASSISTANT, Role.TOOL);
+        assertThat(gateway.getRequests().get(1).getMessages().get(3).getToolResults().get(0).getErrorCode())
+                .isEqualTo("TOOL_NOT_FOUND");
     }
 
     /**

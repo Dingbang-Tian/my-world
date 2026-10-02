@@ -55,6 +55,8 @@ my-world-app / com.dingbang.myworld
 
 模型适配器只执行一轮请求。请求里可声明工具，响应可要求调用工具，但适配器不执行 Java 工具、不循环续问。
 
+S06 已把可信工具描述转换为 `ModelToolDefinition`（名称、用途、JSON Schema 字符串）并附在每次 `ModelRequest`。`DefaultAgentRun` 在每轮独立监听器的完成回调后调度下一步：工具回合按 callId 记录完整助手消息、逐个执行并记录工具消息，随后再次调用同一个 `ModelGateway`；文本正常结束才提交整段交换到进程内会话。异常工具结果会作为普通 TOOL 消息交给模型，模型回合限制在下一批工具执行前检查。协议适配器仍只负责单轮转换。
+
 | 契约 | 输入／输出与职责 |
 |---|---|
 | ModelGateway | 根据 modelId 查找适配器，执行 `generate(request, listener)` 并通过 `ModelEventListener` 回调事件 |

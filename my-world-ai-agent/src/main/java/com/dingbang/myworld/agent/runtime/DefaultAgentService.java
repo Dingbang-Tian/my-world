@@ -7,6 +7,8 @@ import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.api.AgentService;
 import com.dingbang.myworld.agent.prompt.PromptRepository;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
+import com.dingbang.myworld.agent.skill.AgentSkill;
+import com.dingbang.myworld.agent.tool.ToolRegistry;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.common.utils.collection.CollectionUtils;
@@ -15,6 +17,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -51,6 +55,16 @@ public final class DefaultAgentService implements AgentService {
     private final Map<String, Map<String, AgentDefinition>> definitions;
 
     /**
+     * 可供可信定义选择的工具全集。
+     */
+    private final ToolRegistry tools;
+
+    /**
+     * 按标识索引的不可变技能。
+     */
+    private final Map<String, AgentSkill> skills;
+
+    /**
      * 当前进程的会话历史。
      */
     private final Map<String, InMemoryAgentSession> sessions = new ConcurrentHashMap<>();
@@ -80,9 +94,37 @@ public final class DefaultAgentService implements AgentService {
      */
     public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
                                Collection<AgentDefinition> definitions, Executor executor) {
+        this(gateway, prompts, definitions, new ToolRegistry(Collections.emptyList()),
+                Collections.emptyList(), executor);
+    }
+
+    /**
+     * 创建支持工具与技能的 Agent 服务。
+     *
+     * @param gateway 单次模型调用入口
+     * @param prompts 提示词仓库
+     * @param definitions 可用 Agent 定义
+     * @param tools 可信工具全集
+     * @param skills 可用技能
+     * @param executor 执行模型与工具的后台执行器
+     */
+    public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
+                               Collection<AgentDefinition> definitions, ToolRegistry tools,
+                               Collection<AgentSkill> skills, Executor executor) {
         this.gateway = Objects.requireNonNull(gateway, "模型入口不能为 null");
         this.prompts = Objects.requireNonNull(prompts, "提示词仓库不能为 null");
         this.executor = Objects.requireNonNull(executor, "模型执行器不能为 null");
+        this.tools = Objects.requireNonNull(tools, "工具注册表不能为 null");
+        Objects.requireNonNull(skills, "技能集合不能为 null");
+        /** 技能索引。 */
+        Map<String, AgentSkill> indexedSkills = new LinkedHashMap<>();
+        for (AgentSkill skill : skills) {
+            Objects.requireNonNull(skill, "技能不能为 null");
+            if (indexedSkills.putIfAbsent(skill.getSkillId(), skill) != null) {
+                throw new IllegalArgumentException("重复技能标识: " + skill.getSkillId());
+            }
+        }
+        this.skills = Collections.unmodifiableMap(indexedSkills);
         if (CollectionUtils.isEmpty(definitions)) {
             throw new IllegalArgumentException("至少需要一个 Agent 定义");
         }
@@ -127,13 +169,30 @@ public final class DefaultAgentService implements AgentService {
 
         // 当前 run 固定模板内容和 hash，运行期间的配置变化不会影响它。
         PromptTemplateSnapshot template = prompts.get(definition.getPromptTemplateId());
-        Map<String, String> variables = promptVariables(definition, request, sessionId, runId);
+        /** 直接工具和技能工具去重后的可信授权名称。 */
+        LinkedHashSet<String> authorizedNames = new LinkedHashSet<>(definition.getToolIds());
+        /** 技能说明，按照定义顺序加入系统模板。 */
+        List<String> instructions = new ArrayList<>();
+        for (String skillId : new LinkedHashSet<>(definition.getSkillIds())) {
+            /** 当前启用的技能。 */
+            AgentSkill skill = skills.get(skillId);
+            if (skill == null) {
+                throw new IllegalArgumentException("未知技能: " + skillId);
+            }
+            authorizedNames.addAll(skill.getToolIds());
+            instructions.add(skill.getInstructions());
+        }
+        /** 运行级工具授权快照。 */
+        ToolRegistry selectedTools = tools.select(authorizedNames);
+        /** 当前运行的系统模板变量。 */
+        Map<String, String> variables = promptVariables(definition, request, sessionId, runId,
+                instructions);
         Message system = template.toSystemMessage(runId + ":system", variables);
 
         // 新会话在此登记；既有会话则校验它属于当前应用和 Agent。
         InMemoryAgentSession session = sessionFor(request, sessionId);
         return new DefaultAgentRun(runId, sessionId, definition, request, system, template, session, gateway,
-                executor);
+                selectedTools, executor);
     }
 
     /**
@@ -183,10 +242,11 @@ public final class DefaultAgentService implements AgentService {
      * @param request 用户请求
      * @param sessionId 会话标识
      * @param runId 运行标识
+     * @param instructions 已启用的技能说明
      * @return 模板变量快照
      */
     private Map<String, String> promptVariables(AgentDefinition definition, AgentRequest request,
-                                                 String sessionId, String runId) {
+                                                 String sessionId, String runId, List<String> instructions) {
         Map<String, String> variables = new LinkedHashMap<>();
         // 这里的全部变量来自服务端定义或运行上下文，用户文本不允许替换 SYSTEM 模板。
         // Agent 身份来自服务端定义，作为 SYSTEM 模板的可信输入。
@@ -194,7 +254,7 @@ public final class DefaultAgentService implements AgentService {
         variables.put("agentDescription", definition.getDescription());
 
         // Skill 和运行环境在后续阶段由实际注册信息及执行上下文替换。
-        variables.put("skillInstructions", "无");
+        variables.put("skillInstructions", instructions.isEmpty() ? "无" : String.join("\n", instructions));
         variables.put("runtimeContext", "无");
 
         // 运行关联字段可供项目自定义模板引用，用户输入不会写入 SYSTEM 模板。

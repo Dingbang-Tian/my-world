@@ -8,15 +8,15 @@
 
 | ID | 必须保留的能力 | 参考位置 | 目标模块/阶段 | 实现与证据 |
 |---|---|---|---|---|
-| F01 | Agent 名称、描述、模型、工具和技能定义 | agent/AgentClient | ai-agent，S04/S05/S06 | 待完成 |
+| F01 | Agent 名称、描述、模型、工具和技能定义 | agent/AgentClient | ai-agent，S04/S05/S06 | `AgentDefinition` 含可信模型、工具、技能和回合上限；S06 假模型验证授权工具与技能说明，业务级配置接入待后续阶段 |
 | F02 | 普通同步调用、流式文本与最终结果 | AgentSessionResult、LLMResult、ResultHandler | ai-framework/ai-agent，S02/S04/S07/S08 | S02 单轮契约与 S04 `AgentService.run`、`AgentRun.subscribe/getResult` 已由本地假模型验证；真实协议和取消仍待后续阶段 |
-| F03 | 工具完整闭环与调用结果回传 | 各模型的 handleToolCallsAndContinue 等方法 | ai-agent，S06 | 待完成 |
+| F03 | 工具完整闭环与调用结果回传 | 各模型的 handleToolCallsAndContinue 等方法 | ai-agent，S06 | `DefaultAgentRun` 统一追加 assistant/tool、执行工具并续问；`AgentToolLoopTest` 验证两个 callId 和最终文本；真实协议待 S07 |
 | F04 | 工具注解、参数解析和 JSON Schema | core/tool/ToolDescriptor/ToolParam/annotations | ai-agent，S05 | `agent/tool/ToolDescriptor`、`tool/annotation`、`ToolRegistry` 已支持字符串、数值、布尔、枚举和列表/数组并严格校验；`ToolExecutorTest` 本地验证，协议适配待 S07 |
-| F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | `ToolExecutor` 发布 PREPARING/CALLING/COMPLETED/FAILED，监听器异常被隔离，普通失败生成结构化 `ToolResult`；接入 Agent 事件与取消待 S06/S08 |
-| F06 | 工具异常反馈给模型，供模型修正 | ToolExecutor.handleToolError | ai-agent，S06 | 待完成 |
-| F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | 待完成 |
-| F08 | 关闭技能与内置工具，作为普通客户端使用 | AgentClient.clearAllSkills、getAllTools | ai-agent，S06/S09 | 待完成 |
-| F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S04 已验证进程内 USER/ASSISTANT 完整交换与下一轮上下文；工具消息及持久化待 S06/S09/S18 |
+| F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | `ToolExecutor` 发布 PREPARING/CALLING/COMPLETED/FAILED；S06 映射为带 callId 的 Agent 事件并验证顺序，取消待 S08 |
+| F06 | 工具异常反馈给模型，供模型修正 | ToolExecutor.handleToolError | ai-agent，S06 | S06 已验证参数失败为 `TOOL_VALIDATION_ERROR`、Java 工具不执行、模型据结果发出修正调用；其他异常的模型修正待扩展 |
+| F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | `AgentSkill` 按 ID 聚合工具和说明；运行时去重并写入 SYSTEM；codegen 技能待 S10 |
+| F08 | 关闭技能与内置工具，作为普通客户端使用 | AgentClient.clearAllSkills、getAllTools | ai-agent，S06/S09 | 定义可使用空 skillIds/toolIds；S04 原无工具对话和 S06 未授权工具错误已验证；管理 API 待 S09 |
+| F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S06 成功运行将 USER/ASSISTANT/TOOL/ASSISTANT 原序列入进程内历史，下一次请求完整复用；持久化待 S18 |
 | F10 | Token/轮次触发摘要、摘要回注、压缩事件 | AgentClientSession.summarizeHistory* | ai-agent，S15 | 待完成 |
 | F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | 待完成 |
 | F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | 待完成 |
@@ -125,8 +125,8 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 | ID | 输入/故障 | 应观察的结果 |
 |---|---|---|
 | A01 | 无工具普通任务 | 只有一次模型调用，返回完整文本，流事件不重复；S04 本地假模型已验证 1 次订阅、2 条增量和 1 个完成事件，真实协议待 S07 |
-| A02 | 需要一个工具的任务 | assistant call → tool result → 第二轮回答，callId 配对 |
-| A03 | 工具参数非法 | 工具不执行；模型获得可识别错误；可在预算内修正；S05 已验证校验失败不执行并返回 `TOOL_VALIDATION_ERROR`，回传模型及修正待 S06 |
+| A02 | 需要一个工具的任务 | S06 假模型已验证 assistant call → tool result → 第二轮回答，callId 配对；还覆盖同回合两个调用 |
+| A03 | 工具参数非法 | S06 假模型已验证工具不执行、`TOOL_VALIDATION_ERROR` 回传模型、随后修正调用成功；真实协议待 S07 |
 | A04 | 生成一个小型 Java 程序 | 文件在指定临时 workspace 创建；命令验证；结果列出产物 |
 | A05 | 插入/替换/追加/移动/删除 | 十二工具对应行为和边界全部有验证 |
 | A06 | 两步骤计划有数据依赖 | 后一步真实接收前一步结果；失败状态准确 |

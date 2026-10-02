@@ -95,8 +95,16 @@ final class InMemoryAgentSession {
      * @param assistant 本轮完整助手消息
      */
     synchronized void appendExchange(Message user, Message assistant) {
-        // 只有完整回合成功后才追加这一对消息；TextDelta 从不进入 history。
-        history.add(Objects.requireNonNull(user, "用户消息不能为 null"));
-        history.add(Objects.requireNonNull(assistant, "助手消息不能为 null"));
+        appendExchange(java.util.Arrays.asList(user, assistant));
+    }
+
+    /**
+     * 按原始顺序记录成功运行产生的用户、助手和工具消息。
+     *
+     * @param messages 本次运行生成的完整消息
+     */
+    synchronized void appendExchange(List<Message> messages) {
+        Objects.requireNonNull(messages, "消息列表不能为 null").forEach(Objects::requireNonNull);
+        history.addAll(messages);
     }
 }

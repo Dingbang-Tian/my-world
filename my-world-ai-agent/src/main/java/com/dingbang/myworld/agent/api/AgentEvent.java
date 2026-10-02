@@ -1,5 +1,6 @@
 package com.dingbang.myworld.agent.api;
 
+import com.dingbang.myworld.agent.tool.ToolExecutionEvent;
 import lombok.Data;
 
 import java.time.Instant;
@@ -50,6 +51,11 @@ public final class AgentEvent {
     private final AgentResult result;
 
     /**
+     * 工具执行阶段信息，仅工具事件时非 null。
+     */
+    private final ToolExecutionEvent toolExecution;
+
+    /**
      * 创建一次运行事件。
      *
      * @param runId 运行标识
@@ -63,6 +69,24 @@ public final class AgentEvent {
      */
     public AgentEvent(String runId, String sessionId, long sequence, Instant timestamp,
                       AgentEventType type, String text, AgentResult result) {
+        this(runId, sessionId, sequence, timestamp, type, text, result, null);
+    }
+
+    /**
+     * 创建包含可选工具阶段的运行事件。
+     *
+     * @param runId 运行标识
+     * @param sessionId 会话标识
+     * @param sequence 当前运行的顺序号
+     * @param timestamp 事件时间
+     * @param type 事件类型
+     * @param text 文本增量
+     * @param result 终态结果
+     * @param toolExecution 工具阶段信息
+     */
+    public AgentEvent(String runId, String sessionId, long sequence, Instant timestamp,
+                      AgentEventType type, String text, AgentResult result,
+                      ToolExecutionEvent toolExecution) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         if (sequence < 1) {
@@ -71,13 +95,19 @@ public final class AgentEvent {
         this.sequence = sequence;
         this.timestamp = Objects.requireNonNull(timestamp, "事件时间不能为 null");
         this.type = Objects.requireNonNull(type, "事件类型不能为 null");
-        if (type == AgentEventType.TEXT_DELTA && (text == null || result != null)) {
+        if (type == AgentEventType.TEXT_DELTA && (text == null || result != null || toolExecution != null)) {
             throw new IllegalArgumentException("文本事件必须只包含文本增量");
         }
-        if (type != AgentEventType.TEXT_DELTA && (text != null || result == null)) {
+        if (type == AgentEventType.TOOL_EXECUTION
+                && (text != null || result != null || toolExecution == null)) {
+            throw new IllegalArgumentException("工具事件必须只包含工具阶段");
+        }
+        if (type != AgentEventType.TEXT_DELTA && type != AgentEventType.TOOL_EXECUTION
+                && (text != null || result == null || toolExecution != null)) {
             throw new IllegalArgumentException("终态事件必须只包含最终结果");
         }
         this.text = text;
         this.result = result;
+        this.toolExecution = toolExecution;
     }
 }

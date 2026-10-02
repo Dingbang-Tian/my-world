@@ -3,6 +3,9 @@ package com.dingbang.myworld.agent.api;
 import com.dingbang.myworld.common.utils.lang.StringUtils;
 import lombok.Data;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -45,6 +48,21 @@ public final class AgentDefinition {
     private final String promptTemplateId;
 
     /**
+     * 直接授权的工具名称。
+     */
+    private final List<String> toolIds;
+
+    /**
+     * 启用的技能标识。
+     */
+    private final List<String> skillIds;
+
+    /**
+     * 一次运行允许的最大模型回合数。
+     */
+    private final int maxModelTurns;
+
+    /**
      * 创建不可变定义；省略模板标识时使用公共系统模板。
      *
      * @param appId 所属应用标识
@@ -58,6 +76,26 @@ public final class AgentDefinition {
      */
     public AgentDefinition(String appId, String agentId, String name, String description,
                            String modelId, String promptTemplateId) {
+        this(appId, agentId, name, description, modelId, promptTemplateId,
+                Collections.emptyList(), Collections.emptyList(), 8);
+    }
+
+    /**
+     * 创建包含工具、技能和模型回合限制的可信定义。
+     *
+     * @param appId 所属应用标识
+     * @param agentId Agent 标识
+     * @param name 显示名称
+     * @param description 职责描述
+     * @param modelId 模型标识
+     * @param promptTemplateId 系统模板标识，可为 null
+     * @param toolIds 直接授权的工具名称
+     * @param skillIds 启用的技能标识
+     * @param maxModelTurns 最大模型回合数，必须大于零
+     */
+    public AgentDefinition(String appId, String agentId, String name, String description,
+                           String modelId, String promptTemplateId, List<String> toolIds,
+                           List<String> skillIds, int maxModelTurns) {
         if (StringUtils.isBlank(appId) || StringUtils.isBlank(agentId)
                 || StringUtils.isBlank(name) || StringUtils.isBlank(modelId)) {
             throw new IllegalArgumentException("应用、Agent、名称和模型标识不能为空");
@@ -71,5 +109,13 @@ public final class AgentDefinition {
         this.description = Objects.requireNonNull(description, "Agent 描述不能为 null");
         this.modelId = modelId;
         this.promptTemplateId = promptTemplateId == null ? "agent/system" : promptTemplateId;
+        if (maxModelTurns < 1) {
+            throw new IllegalArgumentException("最大模型回合数必须大于零");
+        }
+        Objects.requireNonNull(toolIds, "工具标识不能为 null").forEach(Objects::requireNonNull);
+        Objects.requireNonNull(skillIds, "技能标识不能为 null").forEach(Objects::requireNonNull);
+        this.toolIds = Collections.unmodifiableList(new ArrayList<>(toolIds));
+        this.skillIds = Collections.unmodifiableList(new ArrayList<>(skillIds));
+        this.maxModelTurns = maxModelTurns;
     }
 }

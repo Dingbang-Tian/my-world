@@ -29,6 +29,9 @@ public final class ModelRequest {
      */
     private final List<Message> messages;
 
+    /** 本轮允许模型调用的工具说明。 */
+    private final List<ModelToolDefinition> tools;
+
     /**
      * 校验模型标识并复制消息列表。
      *
@@ -38,6 +41,17 @@ public final class ModelRequest {
      * @throws NullPointerException 当消息列表为 null 时
      */
     public ModelRequest(String modelId, List<Message> messages) {
+        this(modelId, messages, Collections.emptyList());
+    }
+
+    /**
+     * 校验并复制消息及模型可见工具说明。
+     *
+     * @param modelId 已配置的模型实例标识
+     * @param messages 本轮消息列表
+     * @param tools 本轮授权工具说明
+     */
+    public ModelRequest(String modelId, List<Message> messages, List<ModelToolDefinition> tools) {
         if (StringUtils.isBlank(modelId)) {
             throw new IllegalArgumentException("模型标识不能为空");
         }
@@ -48,6 +62,8 @@ public final class ModelRequest {
         messages.forEach(Objects::requireNonNull);
         this.modelId = modelId;
         this.messages = Collections.unmodifiableList(new ArrayList<>(messages));
+        Objects.requireNonNull(tools, "工具说明列表不能为 null").forEach(Objects::requireNonNull);
+        this.tools = Collections.unmodifiableList(new ArrayList<>(tools));
     }
 
 }

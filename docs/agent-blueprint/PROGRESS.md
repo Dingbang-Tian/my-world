@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/02（S05 已完成工程验证，等待学习复述）。
+最后更新：2026/10/02（S06 已完成工程验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S06；S04 已能指出 `events` 观察、`execute` 执行，`prepare` 与完整历史的细节已讲解并待复述；S03 变量渲染边界待复述，S02 主线已理解，S00/S01 仍有待复述内容。
-- 当前阶段已实现内容：S05 工具描述、注解、参数 Schema、注册与授权快照、严格参数校验、执行及结构化结果；S04 无工具 Agent 运行仍保持原行为，S06 才接入工具循环。
+- 下一阶段：S07；S06 的工具调用消息与续问等待用户复述；S05 的工具边界、S04 的 `prepare` 与完整历史、S03 的变量渲染边界仍待复述，S02 主线已理解，S00/S01 仍有待复述内容。
+- 当前阶段已实现内容：S06 运行级工具与技能授权、模型可见工具 Schema、唯一 Agent 工具循环、callId 配对、结构化工具错误回传、完整进程内历史和模型回合上限。
 - 当前阻塞：无 S01 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；后续 Maven 命令需显式使用本机 JDK 21。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S05.md](notes/S05.md)。JDK 21 下全项目 36 个测试通过，其中 S05 新增 7 个；未调用真实模型。
+- 本次交付与证据：见 [notes/S06.md](notes/S06.md)。JDK 21 下全项目 40 个测试通过，其中 S06 新增 4 个；未调用真实模型。
 
 ## 2. 阶段状态
 
@@ -24,7 +24,7 @@
 | S03 | 提示词配置 | 已验证 | 待回答 | [notes/S03.md](notes/S03.md) |
 | S04 | Agent SDK 普通对话 | 已验证 | 待回答 | [notes/S04.md](notes/S04.md) |
 | S05 | 工具系统 | 已验证 | 待回答 | [notes/S05.md](notes/S05.md) |
-| S06 | Agent 循环 | 未开始 | 未开始 | — |
+| S06 | Agent 循环 | 已验证 | 待回答 | [notes/S06.md](notes/S06.md) |
 | S07 | Chat 协议 | 未开始 | 未开始 | — |
 | S08 | 流式、取消、预算 | 未开始 | 未开始 | — |
 | S09 | 会话与序列化 | 未开始 | 未开始 | — |
@@ -74,6 +74,7 @@
 | 2026/10/02 | S04 `prepare` 固定模板与会话，`execute` 唯一启动模型；事件与 Future 共享同一运行 | `DefaultAgentServiceTest` 6/6，含多观察者、历史、失败、会话忙、工具调用拒绝和模板新版本请求 | S04–S09 | 已验证 |
 | 2026/10/02 | 保留 `ModelGateway`、`AgentService/AgentRun` 与模型 `Message/ToolCall/ToolResult` 的职责命名；工具注解入 `tool/annotation`，事件和文本实现收平无职责的 `*Impl` 包 | 对照真实单次模型、运行 API、模型消息和 Java 工具边界；包调整后全项目构建验证 | S02–S07 | 已验证 |
 | 2026/10/02 | S05 工具类型由 `Tool<P>.parameterType()` 显式提供；注册时拒绝不支持的参数结构，运行按授权快照解析与执行 | `ToolExecutorTest` 覆盖成功、非法参数、未知/冲突工具、异常、枚举/列表及显式描述 | S05–S06 | 已验证 |
+| 2026/10/02 | S06 在 `DefaultAgentRun` 内集中续问；模型请求只携带纯描述，工具执行前校验 callId 与回合上限 | `AgentToolLoopTest` 验证多调用配对、历史、参数纠错、重复标识与回合上限；全项目 clean test 通过 | S06–S08 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -177,7 +178,24 @@
 下一步具体动作：实现一次工具调用后继续模型的唯一 Agent 循环，并验证 assistant/tool 的 callId 配对历史
 ```
 
-## 11. 后续阶段交接模板
+## 11. S06 阶段交接
+
+```text
+阶段：S06 唯一 Agent 工具循环
+目标与已跑通流程：授权工具/技能 → ModelRequest 携带工具描述 → ASSISTANT 工具调用 → TOOL 同 callId 结果 → 同一 ModelGateway 续问 → 完整消息序列提交会话
+已改文件（路径/核心方法）：framework 的 ModelToolDefinition/ModelRequest；agent 的 AgentDefinition、AgentSkill、DefaultAgentService.prepare、DefaultAgentRun.completeRound/RoundListener、AgentEvent、InMemoryAgentSession；详见 notes/S06.md
+新增依赖或配置：无；默认最大模型回合数 8，可由可信 AgentDefinition 设置；仍用本地假模型和 JDK Executor
+验证命令、结果和环境：JDK 21 下 mvn -q clean test 成功，全项目 40/40；S06 新增 4 个测试，调整既有未授权工具测试；无真实供应商调用
+对照 CHECKLIST 的条目及证据：F01/F03/F05/F06/F07/F08/F09 的 S06 部分、A02/A03；本地两工具 callId、参数纠错、未知工具、重复标识与轮次上限均有断言
+来源实现与新实现的差异：参考 OpenAIChatModel 中的递归续问改为 agent/runtime 唯一循环；模型契约只携带工具描述，工具执行不进入协议适配器；未复制源码
+未完成工作／真实阻塞：S07 OpenAI Chat 单次协议适配尚未开始；取消、持久化、外部副作用恢复属于后续阶段；无已确认 S07 实施阻塞
+本阶段用户已理解的内容：待回答；工程通过不代表学习掌握
+待用户回答的问题：见 notes/S06.md 的三个理解问题；S05 和更早阶段仍有待复述内容
+下一会话最先读取的文件：本 PROGRESS.md、notes/S06.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S07
+下一步具体动作：核对 S06 消息轨迹复述后实现 S07 本地 HTTP/SSE fixture 与单次协议适配
+```
+
+## 12. 后续阶段交接模板
 
 ```text
 阶段：
@@ -196,7 +214,7 @@
 
 每阶段另存 `notes/Sxx.md`，包含调用链、事件/消息示例、测试证据和理解问题的回答。不要把完整源码、API Key、个人文件内容复制进学习笔记。
 
-## 12. 收尾检查
+## 13. 收尾检查
 
 - [ ] 所有必做阶段都有真实验证记录。
 - [ ] CHECKLIST 的保留功能和 A01–A18 场景均有证据。
