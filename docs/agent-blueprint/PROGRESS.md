@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/02（S02 已完成工程验证和主线理解，准备进入 S03）。
+最后更新：2026/10/02（S03 已完成工程验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S03；S02 主线已理解，S00/S01 仍有待复述内容。
-- 当前阶段已实现内容：S02 协议中立的消息、单次模型请求与事件契约，本地 scripted 假模型及终态校验，已归入独立 `my-world-ai-framework`；没有提前实现 Agent SDK 或工具循环。
+- 下一阶段：S04；S03 已完成优先级和授权边界复述，变量渲染边界待复述，S02 主线已理解，S00/S01 仍有待复述内容。
+- 当前阶段已实现内容：S03 公共 Agent 模板资源、项目 YAML 与应用资源覆盖、模板快照及 SYSTEM 消息构造；尚未接入 Agent SDK 或工具循环。
 - 当前阻塞：无 S01 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；后续 Maven 命令需显式使用本机 JDK 21。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S02.md](notes/S02.md)。14 个测试通过，其中 S02 新增 4 个；测试使用本地假模型，未调用真实模型或执行参考 MainTest。
+- 本次交付与证据：见 [notes/S03.md](notes/S03.md)。JDK 21 下全项目 23 个测试通过，其中 S03 新增 9 个；未调用真实模型。
 
 ## 2. 阶段状态
 
@@ -21,7 +21,7 @@
 | S00 | 基线与图纸接入 | 已验证 | 待回答 | [notes/S00.md](notes/S00.md) |
 | S01 | 模块与装配 | 已验证 | 待回答 | [notes/S01.md](notes/S01.md) |
 | S02 | 模型契约与假模型 | 已验证 | 已掌握 | [notes/S02.md](notes/S02.md) |
-| S03 | 提示词配置 | 未开始 | 未开始 | — |
+| S03 | 提示词配置 | 已验证 | 待回答 | [notes/S03.md](notes/S03.md) |
 | S04 | Agent SDK 普通对话 | 未开始 | 未开始 | — |
 | S05 | 工具系统 | 未开始 | 未开始 | — |
 | S06 | Agent 循环 | 未开始 | 未开始 | — |
@@ -69,6 +69,7 @@
 | 2026/10/01 | S02 数据契约使用 Java 8 风格普通不可变类；空白字符串与空集合判断复用 common 工具包；Javadoc 统一为多行 | 用户明确提出风格要求；JDK 21 下契约测试和现有回归共 14/14 通过 | S02 及后续 Java 代码 | 已验证 |
 | 2026/10/01 | S02 值对象保留 `final`，统一使用 Lombok `@Data`；接口和实现拆成顶层文件 | 字段全部为 `final`，不会生成 setter；`@Data` 统一生成 getter、值比较和 `toString`；`ContentBlock`/`TextContentBlock`、`ModelEvent`/`TextDelta`/`TurnCompleted` 等不使用内部类；JDK 21 下回归测试通过 | S02 数据对象 | 已验证 |
 | 2026/10/01 | 新增 `my-world-ai-framework`，迁移 S02 契约；`my-world-ai` 恢复为 Spring AI 接入模块 | framework 只依赖 common、Reactor 和 Lombok；agent 依赖 framework，不再导入 `SpringAiConfiguration`；clean test 和离线依赖树通过，framework/agent 编译依赖中没有 Spring AI | S01/S02 模块边界 | 已验证 |
+| 2026/10/02 | S03 模板按项目 YAML > 应用资源 > 公共默认资源合并，启动时冻结内容与 hash | `PromptTemplateRegistryTest` 和 `AgentPromptConfigurationTest` 9/9，包含文件变更后重建仓库、SYSTEM 角色与无效配置启动失败 | S03/S04/S15 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -121,7 +122,24 @@
 下一步具体动作：核对 S02 回答后实施 S03，保持一次只完成一个阶段
 ```
 
-## 8. 后续阶段交接模板
+## 8. S03 阶段交接
+
+```text
+阶段：S03 配置化提示词和默认覆盖
+目标与已跑通流程：Spring 启动绑定配置 → 加载默认/应用/项目模板 → 校验、计算 hash → 渲染变量 → 构造 SYSTEM 消息
+已改文件（路径/核心方法）：ai-agent 的 prompt 包、AgentPromptConfiguration/Properties、四份 prompts/agent 资源；AgentModuleConfiguration 导入新配置；详见 notes/S03.md
+新增依赖或配置：ai-agent 增加 spring-boot、Lombok 与测试依赖；项目配置前缀 my-world.agent.prompts；原 my-world.ai.default-system-prompt 不变
+验证命令、结果和环境：JDK 21 下 mvn -q clean test 成功；S03 9/9，原有 14/14，共 23/23；无真实模型调用
+对照 CHECKLIST 的条目及证据：A15 模板优先级、重载后 hash 和快照基础部分完成；请求级使用待 S04
+来源实现与新实现的差异：参考 AgentClientSession 与三种 Skill 将文字内嵌 Java；新实现用资源文件，并生成 Role.SYSTEM；未复制源码
+未完成工作／真实阻塞：S04 Agent SDK 与运行时接入未开始；热更新属于后续扩展；无 S04 实施阻塞
+本阶段用户已理解的内容：待回答；不能因测试通过标记掌握
+待用户回答的问题：见 notes/S03.md 的三个理解问题
+下一会话最先读取的文件：本 PROGRESS.md、notes/S03.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S04
+下一步具体动作：先核对 S03 理解问题，再实施 S04 无工具 Agent 对话
+```
+
+## 9. 后续阶段交接模板
 
 ```text
 阶段：
@@ -140,7 +158,7 @@
 
 每阶段另存 `notes/Sxx.md`，包含调用链、事件/消息示例、测试证据和理解问题的回答。不要把完整源码、API Key、个人文件内容复制进学习笔记。
 
-## 9. 收尾检查
+## 10. 收尾检查
 
 - [ ] 所有必做阶段都有真实验证记录。
 - [ ] CHECKLIST 的保留功能和 A01–A18 场景均有证据。
