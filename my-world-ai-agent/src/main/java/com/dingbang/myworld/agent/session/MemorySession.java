@@ -2,6 +2,7 @@ package com.dingbang.myworld.agent.session;
 
 import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.model.Message;
+import com.dingbang.myworld.agent.memory.MemorySummary;
 import com.dingbang.myworld.common.utils.lang.StringUtils;
 
 import java.util.ArrayList;
@@ -36,6 +37,8 @@ final class MemorySession implements Session {
 
     /** 成功提交的交换次数。 */
     private long version;
+    /** 已提交的有损摘要。 */
+    private MemorySummary summary;
 
     /** 是否有运行占用此会话。 */
     private boolean busy;
@@ -53,6 +56,23 @@ final class MemorySession implements Session {
      */
     MemorySession(String sessionId, String ownerId, String appId, String agentId,
                   long version, ModelOptions options, List<Message> history) {
+        this(sessionId, ownerId, appId, agentId, version, options, history, null);
+    }
+
+    /**
+     * 初始化包含摘要的内存会话。
+     *
+     * @param sessionId 会话标识
+     * @param ownerId 所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param version 历史版本
+     * @param options 会话模型选项
+     * @param history 完整原始历史
+     * @param summary 已提交摘要，可为 null
+     */
+    MemorySession(String sessionId, String ownerId, String appId, String agentId,
+                  long version, ModelOptions options, List<Message> history, MemorySummary summary) {
         if (StringUtils.isBlank(sessionId) || StringUtils.isBlank(ownerId)
                 || StringUtils.isBlank(appId) || StringUtils.isBlank(agentId)) {
             throw new IllegalArgumentException("会话身份不能为空");
@@ -74,6 +94,8 @@ final class MemorySession implements Session {
         if (!this.history.isEmpty()) {
             SessionHistoryValidator.validateExchange(this.history);
         }
+        validateSummary(this.history, summary);
+        this.summary = summary;
     }
 
     /**
@@ -129,7 +151,7 @@ final class MemorySession implements Session {
      */
     @Override
     public synchronized SessionSnapshot snapshot() {
-        return new SessionSnapshot(version, history);
+        return new SessionSnapshot(version, history, summary);
     }
 
     /**
@@ -146,6 +168,41 @@ final class MemorySession implements Session {
         SessionHistoryValidator.validateExchange(messages);
         history.addAll(messages);
         version++;
+    }
+
+    /**
+     * 原子提交已验证的摘要覆盖位置。
+     *
+     * @param expectedVersion 历史版本
+     * @param expectedCoveredMessageCount 原覆盖位置
+     * @param nextSummary 新摘要
+     */
+    @Override
+    public synchronized void updateSummary(long expectedVersion, int expectedCoveredMessageCount,
+                                           MemorySummary nextSummary) {
+        if (!busy || version != expectedVersion
+                || (summary == null ? 0 : summary.getCoveredMessageCount()) != expectedCoveredMessageCount) {
+            throw new IllegalStateException("VERSION_CONFLICT");
+        }
+        validateSummary(history, nextSummary);
+        if (nextSummary.getCoveredMessageCount() <= expectedCoveredMessageCount) {
+            throw new IllegalArgumentException("摘要覆盖位置必须前进");
+        }
+        summary = nextSummary;
+    }
+
+    /**
+     * 校验覆盖位置恰好落在完整交换末尾。
+     *
+     * @param messages 完整原始历史
+     * @param candidate 待校验摘要
+     */
+    private static void validateSummary(List<Message> messages, MemorySummary candidate) {
+        if (candidate == null) return;
+        if (candidate.getCoveredMessageCount() > messages.size()) {
+            throw new IllegalArgumentException("摘要覆盖位置超出历史");
+        }
+        SessionHistoryValidator.validateExchange(messages.subList(0, candidate.getCoveredMessageCount()));
     }
 
     /**

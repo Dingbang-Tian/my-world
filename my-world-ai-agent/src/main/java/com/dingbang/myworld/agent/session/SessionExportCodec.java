@@ -1,6 +1,7 @@
 package com.dingbang.myworld.agent.session;
 
 import com.dingbang.myworld.aiframework.api.ModelOptions;
+import com.dingbang.myworld.agent.memory.MemorySummary;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
 import com.dingbang.myworld.aiframework.model.ToolCall;
@@ -20,7 +21,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 将当前文本与工具消息编码为有版本、无运行对象的会话 JSON。
+ * 将原始文本、工具消息和可选摘要编码为有版本、无运行对象的会话 JSON。
  *
  * @author Sebastian
  * @since 2026/10/03
@@ -52,6 +53,12 @@ public final class SessionExportCodec {
         root.put("appId", appId);
         root.put("agentId", agentId);
         root.put("version", snapshot.getVersion());
+        if (snapshot.getSummary() != null) {
+            /** 已提交摘要及其覆盖位置。 */
+            ObjectNode summaryNode = root.putObject("memorySummary");
+            summaryNode.put("text", snapshot.getSummary().getText());
+            summaryNode.put("coveredMessageCount", snapshot.getSummary().getCoveredMessageCount());
+        }
         /** 模型选项对象。 */
         ObjectNode optionsNode = root.putObject("modelOptions");
         if (options.getTemperature() != null) optionsNode.put("temperature", options.getTemperature());
@@ -185,8 +192,21 @@ public final class SessionExportCodec {
             if (version < 0 || (version == 0 && !messages.isEmpty()) || (version > 0 && messages.isEmpty())) {
                 throw new IllegalArgumentException("会话版本与历史不一致");
             }
+            /** 可选摘要节点。 */
+            JsonNode summaryNode = root.path("memorySummary");
+            /** 解码后的摘要。 */
+            MemorySummary summary = null;
+            if (!summaryNode.isMissingNode()) {
+                if (!summaryNode.isObject()) throw new IllegalArgumentException("摘要结构无效");
+                summary = new MemorySummary(requiredText(summaryNode, "text"),
+                        requiredInteger(summaryNode, "coveredMessageCount"));
+                if (summary.getCoveredMessageCount() > messages.size()) {
+                    throw new IllegalArgumentException("摘要覆盖位置超出历史");
+                }
+                SessionHistoryValidator.validateExchange(messages.subList(0, summary.getCoveredMessageCount()));
+            }
             return new ImportedSession(requiredText(root, "sessionId"), requiredText(root, "ownerId"),
-                    requiredText(root, "appId"), requiredText(root, "agentId"), version, options, messages);
+                    requiredText(root, "appId"), requiredText(root, "agentId"), version, options, messages, summary);
         } catch (JsonProcessingException exception) {
             throw new IllegalArgumentException("无效会话 JSON", exception);
         }

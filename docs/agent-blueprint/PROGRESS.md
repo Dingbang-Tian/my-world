@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/03（S14 子 Agent 已完成本地验证，等待学习复述）。
+最后更新：2026/10/03（S15 上下文与摘要已完成本地验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S15；S14 的父子上下文问题等待用户复述；此前阶段的待回答问题仍保留。
-- 当前阶段已实现内容：S14 的 create_sub_agent、独立子会话与 runId、显式委派上下文、父级工具子集、异步顺序等待、父取消与截止时间、深度和剩余预算限制，以及按 modelCallId 去重的父子用量汇总；codegen 可显式开启子 Agent。
+- 下一阶段：S16；S15、S14 及此前阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S15 的可信上下文策略、保守输入估算、轮次和 Token 阈值、无工具分块摘要、原子覆盖位置、摘要回注与压缩事件、摘要用量和导出恢复；原始历史仍完整保存。
 - 当前验证边界：默认 JDK 8 无法构建 Java 21 项目；普通沙箱禁止本地端口绑定和 Java 枚举进程树。完整测试已在允许本地 HTTP fixture 的本机执行环境通过；未调用真实供应商。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S14.md](notes/S14.md)。JDK 21 下完整 `mvn test` 89/89 通过、无跳过；含脚本模型委派代码审查、实际只读文件工具、父子历史隔离、预算与取消验证。未调用真实供应商。
+- 本次交付与证据：见 [notes/S15.md](notes/S15.md)。JDK 21 下完整 `mvn -q test` 95/95 通过、无失败/错误/跳过；S15 测试 6/6 通过。未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -33,7 +33,7 @@
 | S12 | 命令与生成闭环 | 已验证 | 待回答 | [notes/S12.md](notes/S12.md) |
 | S13 | 计划 | 已验证 | 待回答 | [notes/S13.md](notes/S13.md) |
 | S14 | 子 Agent | 已验证 | 待回答 | [notes/S14.md](notes/S14.md) |
-| S15 | 摘要与上下文 | 未开始 | 未开始 | — |
+| S15 | 摘要与上下文 | 已验证 | 待回答 | [notes/S15.md](notes/S15.md) |
 | S16 | 多协议与多模态 | 未开始 | 未开始 | — |
 | S17 | Embedding | 未开始 | 未开始 | — |
 | S18 | 数据库存储 | 未开始 | 未开始 | — |
@@ -81,6 +81,7 @@
 | 2026/10/03 | S12 命令能力独立开关，环境白名单与工作目录显式配置；有界异步读取与启动时限；按 runId 返回文件产物和命令报告 | JDK 21 完整 `mvn test` 74/74 通过；命令测试含取消/超时子进程清理 6/6 通过 | S12/S19 | 已验证 |
 | 2026/10/03 | S13 在唯一 Agent 运行时内执行顺序计划；步骤模型共用父取消、时限、回合、工具和输出预算；codegen 按配置显式开启计划 | `PlanExecutionTest`、`CodegenServiceTest` 与 `CodegenCommandLoopTest` 验证依赖、失败策略、递归限制、预算、取消和真实 javac 纠错；完整 81/81 通过 | S13/S14 | 已验证 |
 | 2026/10/03 | S14 子 Agent 复用唯一 runtime，独立会话与运行标识；父级明确传上下文和已授权工具子集，顺序异步等待，传播取消并收紧剩余预算与深度 | `SubAgentExecutionTest` 覆盖历史隔离、权限、嵌套、预算、失败、取消及单线程执行器；`CodegenServiceTest` 使用真实只读文件工具审查产物；完整 89/89 通过 | S14/S18/S21 | 已验证 |
+| 2026/10/03 | S15 在可信定义中配置上下文窗口；仅摘要完整历史交换，分块调用无工具模型，成功后原子更新摘要覆盖位置，原始历史永久保留；摘要与普通调用共用预算 | `ContextMemoryTest` 覆盖轮次/Token 阈值、工具交换、分块、防重复、失败、超长、超窗、事件、用量、导出恢复；完整回归见 notes/S15.md | S15/S16/S18 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -318,6 +319,23 @@
 待用户回答的问题：见 notes/S14.md；此前阶段待回答内容仍保留
 下一会话最先读取的文件：本 PROGRESS.md、notes/S14.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S15
 下一步具体动作：按 S15 实现上下文窗口与摘要记忆
+```
+
+## 12G. S15 阶段交接
+
+```text
+阶段：S15 上下文窗口与摘要记忆
+目标与已跑通流程：完整历史积累 → 轮次或估算 Token 触发 → 无工具分块摘要 → 原子提交覆盖位置 → 下一请求使用可信 SYSTEM、摘要、未覆盖完整交换与最新用户输入
+已改文件（路径/核心方法）：agent/memory 的 ContextPolicy、ContextAssembler、MemorySummary；runtime/DefaultAgentRun.prepareInitialContext/requestSummary/prepareAndInvokeModel；session 的摘要快照与导出恢复；api/AgentEventType.MEMORY_COMPRESSED；codegen 可信阈值配置；详见 notes/S15.md
+新增依赖或配置：无新 Maven 依赖；my-world.codegen 可配置上下文窗口、摘要轮次与 Token 阈值、回答预留和摘要长度；my-world.agent.prompts.summary 可覆盖摘要模板
+验证命令、结果和环境：JDK 21 下 ContextMemoryTest 6/6、完整 mvn -q test 95/95 通过；普通沙箱禁止本地 HTTP fixture 绑定，已在允许 localhost 的本机环境执行
+对照 CHECKLIST 的条目及证据：F10/F11；ContextMemoryTest 验证触发、摘要回注、事件、用量、失败、完整工具交换、窗口错误和导出恢复
+来源实现与新实现的差异：参考客户端直接维护摘要和历史；新实现把摘要与覆盖位置作为会话仓库状态，保留原始消息并在导入时校验完整交换边界；未复制参考源码
+未完成工作／真实阻塞：估算不是供应商精确 tokenizer，实际窗口值需按模型配置并验证；真实供应商未冒烟；S18 将把摘要状态持久化到数据库仓库；无 S16 实施阻塞
+本阶段用户已理解的内容：待回答；工程测试不等于学习掌握
+待用户回答的问题：见 notes/S15.md；此前阶段待回答内容仍保留
+下一会话最先读取的文件：本 PROGRESS.md、notes/S15.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S16
+下一步具体动作：按 S16 实现 Responses、Anthropic、reasoning 与附件
 ```
 
 ## 13. 后续阶段交接模板

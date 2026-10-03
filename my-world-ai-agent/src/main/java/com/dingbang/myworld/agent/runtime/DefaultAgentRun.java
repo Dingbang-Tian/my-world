@@ -10,6 +10,9 @@ import com.dingbang.myworld.agent.api.AgentRequest;
 import com.dingbang.myworld.agent.api.AgentResult;
 import com.dingbang.myworld.agent.api.AgentResultStatus;
 import com.dingbang.myworld.agent.api.AgentRun;
+import com.dingbang.myworld.agent.memory.ContextAssembler;
+import com.dingbang.myworld.agent.memory.ContextPolicy;
+import com.dingbang.myworld.agent.memory.MemorySummary;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
 import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
 import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
@@ -57,6 +60,7 @@ import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
 import com.dingbang.myworld.common.utils.lang.StringUtils;
 import java.time.Instant;
 import java.time.Duration;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -66,6 +70,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executor;
@@ -103,6 +109,10 @@ final class DefaultAgentRun implements AgentRun {
     private final PromptTemplateSnapshot planStepTemplate;
     /** 固定的子 Agent 模板；未授权子 Agent 时为 null。 */
     private final PromptTemplateSnapshot subAgentTemplate;
+    /** 本次运行固定的摘要模板。 */
+    private final PromptTemplateSnapshot summaryTemplate;
+    /** 上下文组装和输入大小估算器。 */
+    private final ContextAssembler contextAssembler = new ContextAssembler();
     /** 创建独立子会话所用的可信仓库。 */
     private final SessionRepository sessions;
     /** 当前运行的子 Agent 嵌套层数。 */
@@ -139,12 +149,16 @@ final class DefaultAgentRun implements AgentRun {
     private int toolCalls;
     /** 本运行及子树已经使用的模型回合数。 */
     private int modelTurnsUsed;
+    /** 当前运行中已发出的摘要模型请求数。 */
+    private int summaryCalls;
     /** 正在构造的本轮交换。 */
     private List<Message> exchange;
     /** 模型下一回合需要的完整上下文。 */
     private List<Message> messages;
     /** 本轮读取的历史版本。 */
     private long sessionVersion;
+    /** 开始本轮时读取的完整会话快照。 */
+    private SessionSnapshot initialSnapshot;
     /** 全局截止时间。 */
     private Instant deadline;
     /** 可在任意终态撤销的超时任务。 */
@@ -184,6 +198,7 @@ final class DefaultAgentRun implements AgentRun {
      * @param tools 运行级工具授权快照
      * @param planStepTemplate 固定的计划步骤模板，未授权计划时为 null
      * @param subAgentTemplate 固定的子 Agent 模板，未授权委派时为 null
+     * @param summaryTemplate 固定的摘要模板
      * @param sessions 创建独立子会话的仓库
      * @param executor 执行模型和工具的后台执行器
      * @param depth 当前子 Agent 层数
@@ -193,7 +208,8 @@ final class DefaultAgentRun implements AgentRun {
                     Message systemMessage, PromptTemplateSnapshot template,
                     Session session, ModelGateway gateway, ToolRegistry tools,
                     PromptTemplateSnapshot planStepTemplate, PromptTemplateSnapshot subAgentTemplate,
-                    SessionRepository sessions, Executor executor, int depth, Instant inheritedDeadline) {
+                    PromptTemplateSnapshot summaryTemplate, SessionRepository sessions,
+                    Executor executor, int depth, Instant inheritedDeadline) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         this.definition = Objects.requireNonNull(definition, "Agent 定义不能为 null");
@@ -206,6 +222,7 @@ final class DefaultAgentRun implements AgentRun {
         this.toolExecutor = new ToolExecutor(tools);
         this.planStepTemplate = planStepTemplate;
         this.subAgentTemplate = subAgentTemplate;
+        this.summaryTemplate = Objects.requireNonNull(summaryTemplate, "摘要模板不能为 null");
         this.sessions = Objects.requireNonNull(sessions, "会话仓库不能为 null");
         this.depth = depth;
         this.inheritedDeadline = inheritedDeadline;
@@ -300,13 +317,11 @@ final class DefaultAgentRun implements AgentRun {
             /** 当前用户的完整消息。 */
             Message user = textMessage(runId + ":user", Role.USER, request.getUserText());
             synchronized (stateLock) {
-                messages = new ArrayList<>();
-                messages.add(systemMessage);
                 /** 历史和版本的同一快照。 */
                 SessionSnapshot snapshot = session.snapshot();
                 sessionVersion = snapshot.getVersion();
-                messages.addAll(snapshot.getMessages());
-                messages.add(user);
+                initialSnapshot = snapshot;
+                messages = contextAssembler.assemble(systemMessage, snapshot, List.of(user));
                 exchange = new ArrayList<>();
                 exchange.add(user);
                 /** 当前运行的实际截止时间。 */
@@ -338,37 +353,281 @@ final class DefaultAgentRun implements AgentRun {
      * @param turnNumber 从一开始的模型回合编号
      */
     private void scheduleModel(int turnNumber) {
-        /** 固定的本轮请求。 */
-        ModelRequest modelRequest;
-        synchronized (stateLock) {
-            if (terminal) {
-                return;
-            }
-            if (deadlineReached()) {
-                timeout();
-                return;
-            }
-            if (turnNumber > definition.getLimits().getMaxModelTurns()) {
-                limitExceeded("模型回合数达到限制: " + definition.getLimits().getMaxModelTurns(), null);
-                return;
-            }
-            if (outputCharacters >= definition.getLimits().getMaxOutputCharacters()) {
-                limitExceeded("运行输出达到字符上限", null);
-                return;
-            }
-            modelTurnsUsed = Math.max(modelTurnsUsed, turnNumber);
-            /** 计划内部从模型可见工具列表中移除递归计划能力。 */
-            List<ModelToolDefinition> visibleTools = planRunner == null ? modelTools
-                    : modelTools.stream().filter(tool -> !tool.getName().equals("create_plan")).toList();
-            modelRequest = new ModelRequest(definition.getModelId(), messages, visibleTools,
-                    request.getModelOptions().overlay(session.options()), new ModelExecutionContext(deadline, cancellation,
-                    definition.getLimits().getMaxOutputCharacters() - (int) outputCharacters));
-        }
         try {
-            executor.execute(() -> invokeModel(modelRequest, turnNumber));
+            executor.execute(() -> prepareAndInvokeModel(turnNumber));
         } catch (RuntimeException exception) {
             fail("PREPARATION_FAILURE", exception);
         }
+    }
+
+    /**
+     * 在后台线程压缩已完成历史、校验窗口并调用正常模型回合。
+     *
+     * @param turnNumber 从一开始的正常模型回合编号
+     */
+    private void prepareAndInvokeModel(int turnNumber) {
+        try {
+            if (turnNumber == 1) prepareInitialContext();
+        } catch (ExecutionControlException exception) {
+            stopForControl(exception);
+            return;
+        } catch (RuntimeException exception) {
+            fail("SUMMARY_FAILURE", exception);
+            return;
+        }
+        /** 固定的本轮请求。 */
+        ModelRequest modelRequest;
+        try {
+            synchronized (stateLock) {
+                if (terminal) {
+                    return;
+                }
+                if (deadlineReached()) {
+                    timeout();
+                    return;
+                }
+                if (turnNumber + summaryCalls > definition.getLimits().getMaxModelTurns()) {
+                    limitExceeded("模型回合数达到限制: " + definition.getLimits().getMaxModelTurns(), null);
+                    return;
+                }
+                if (outputCharacters >= definition.getLimits().getMaxOutputCharacters()) {
+                    limitExceeded("运行输出达到字符上限", null);
+                    return;
+                }
+                modelTurnsUsed = Math.max(modelTurnsUsed, turnNumber + summaryCalls);
+                /** 计划内部从模型可见工具列表中移除递归计划能力。 */
+                List<ModelToolDefinition> visibleTools = planRunner == null ? modelTools
+                        : modelTools.stream().filter(tool -> !tool.getName().equals("create_plan")).toList();
+                if (contextAssembler.estimate(messages, visibleTools) > inputCapacity()) {
+                    limitExceeded("CONTEXT_WINDOW_EXCEEDED: 当前完整交换或最新用户输入超过上下文窗口", null);
+                    return;
+                }
+                modelRequest = new ModelRequest(definition.getModelId(), messages, visibleTools,
+                        request.getModelOptions().overlay(session.options()), new ModelExecutionContext(deadline, cancellation,
+                        definition.getLimits().getMaxOutputCharacters() - (int) outputCharacters));
+            }
+        } catch (ExecutionControlException exception) {
+            stopForControl(exception);
+            return;
+        } catch (RuntimeException exception) {
+            fail("PREPARATION_FAILURE", exception);
+            return;
+        }
+        invokeModel(modelRequest, turnNumber);
+    }
+
+    /**
+     * 在首轮请求前按阈值压缩完整历史，并原子提交最终摘要。
+     */
+    private void prepareInitialContext() {
+        /** 本次开始时的历史快照。 */
+        SessionSnapshot snapshot = initialSnapshot;
+        /** 可信摘要策略。 */
+        ContextPolicy policy = definition.getContextPolicy();
+        /** 已覆盖消息数量。 */
+        int covered = snapshot.getSummary() == null ? 0 : snapshot.getSummary().getCoveredMessageCount();
+        /** 未覆盖完整交换数量。 */
+        long rounds = snapshot.getMessages().subList(covered, snapshot.getMessages().size()).stream()
+                .filter(message -> message.getRole() == Role.USER).count();
+        /** 首轮完整输入估算。 */
+        int estimated = contextAssembler.estimate(messages, modelTools);
+        if (snapshot.getMessages().size() == covered
+                || (rounds < policy.getTriggerRounds() && estimated < policy.getTriggerTokens()
+                && estimated <= inputCapacity())) {
+            return;
+        }
+        /** 待原子提交的逐块摘要，失败时不会覆盖原始历史。 */
+        MemorySummary working = snapshot.getSummary();
+        while (covered < snapshot.getMessages().size()) {
+            new ModelExecutionContext(deadline, cancellation, 1).checkActive();
+            /** 在摘要请求窗口内可容纳的最大完整交换末尾。 */
+            int selectedEnd = covered;
+            /** 当前候选的完整交换结束位置。 */
+            for (int index = covered + 1; index <= snapshot.getMessages().size(); index++) {
+                if (index < snapshot.getMessages().size()
+                        && snapshot.getMessages().get(index).getRole() != Role.USER) continue;
+                /** 候选摘要请求。 */
+                Message candidate = summaryPrompt(working, snapshot.getMessages().subList(covered, index));
+                if (contextAssembler.estimate(List.of(candidate), List.of())
+                        > policy.getWindowTokens() - policy.getMaxSummaryTokens()) break;
+                selectedEnd = index;
+            }
+            if (selectedEnd == covered) {
+                throw new ExecutionControlException("LIMIT_EXCEEDED",
+                        "CONTEXT_WINDOW_EXCEEDED: 单个完整交换无法放入摘要窗口");
+            }
+            /** 本块摘要请求。 */
+            Message prompt = summaryPrompt(working, snapshot.getMessages().subList(covered, selectedEnd));
+            /** 当前块的摘要文本。 */
+            String compressed = requestSummary(prompt);
+            if (compressed.getBytes(StandardCharsets.UTF_8).length > policy.getMaxSummaryTokens()) {
+                throw new IllegalStateException("SUMMARY_TOO_LONG: 摘要超过配置上限");
+            }
+            working = new MemorySummary(compressed, selectedEnd);
+            covered = selectedEnd;
+        }
+        synchronized (stateLock) {
+            if (terminal) return;
+            session.updateSummary(snapshot.getVersion(), snapshot.getSummary() == null ? 0
+                    : snapshot.getSummary().getCoveredMessageCount(), working);
+            /** 保留首轮用户消息并从新摘要构造模型上下文。 */
+            Message user = exchange.get(0);
+            messages = contextAssembler.assemble(systemMessage, session.snapshot(), List.of(user));
+            emitLocked(AgentEventType.MEMORY_COMPRESSED,
+                    "已覆盖历史消息 " + working.getCoveredMessageCount() + " 条", null, null, null);
+        }
+    }
+
+    /**
+     * 将前次摘要和完整交换渲染成无工具摘要请求。
+     *
+     * @param previous 前次摘要，可为 null
+     * @param exchanges 本次新增的完整交换
+     * @return 摘要系统消息
+     */
+    private Message summaryPrompt(MemorySummary previous, List<Message> exchanges) {
+        /** 供摘要模型阅读的结构化文本。 */
+        StringBuilder conversation = new StringBuilder();
+        if (previous != null) conversation.append("既有摘要：\n").append(previous.getText()).append("\n");
+        /** 当前待摘要的消息。 */
+        for (Message message : exchanges) {
+            conversation.append(message.getRole()).append(':');
+            /** 当前消息的文本块。 */
+            for (ContentBlock block : message.getContentBlocks()) {
+                if (block instanceof TextContentBlock text) conversation.append(' ').append(text.getText());
+            }
+            /** 当前消息中的工具调用。 */
+            for (ToolCall call : message.getToolCalls()) {
+                conversation.append(" 调用[").append(call.getCallId()).append(' ')
+                        .append(call.getName()).append(' ').append(call.getArgumentsJson()).append(']');
+            }
+            /** 当前消息中的工具结果。 */
+            for (ToolResult result : message.getToolResults()) {
+                conversation.append(" 结果[").append(result.getCallId()).append(' ')
+                        .append(result.getStatus()).append(' ').append(result.getContent()).append(']');
+            }
+            conversation.append('\n');
+        }
+        return summaryTemplate.toSystemMessage(runId + ":summary:prompt",
+                Map.of("conversationText", conversation.toString()));
+    }
+
+    /**
+     * 调用不带工具的摘要模型并将其用量计入运行预算。
+     *
+     * @param prompt 已渲染的摘要提示词
+     * @return 非空摘要文本
+     */
+    private String requestSummary(Message prompt) {
+        synchronized (stateLock) {
+            if (terminal) throw new ExecutionControlException("CANCELLED", "运行已经结束");
+            if (modelTurnsUsed + 2 > definition.getLimits().getMaxModelTurns()) {
+                throw new ExecutionControlException("LIMIT_EXCEEDED", "模型回合预算不足以摘要并回答");
+            }
+            summaryCalls++;
+            modelTurnsUsed++;
+        }
+        /** 摘要模型回合的最终结果。 */
+        CompletableFuture<ModelTurn> completed = new CompletableFuture<>();
+        /** 已收到但尚待正常结束的回合。 */
+        ModelTurn[] received = new ModelTurn[1];
+        /** 摘要调用标识。 */
+        String callId = runId + ":summary:" + summaryCalls;
+        /** 当前剩余输出字符预算。 */
+        int remainingCharacters;
+        synchronized (stateLock) {
+            remainingCharacters = definition.getLimits().getMaxOutputCharacters() - (int) outputCharacters;
+        }
+        if (remainingCharacters < 1) throw new ExecutionControlException("LIMIT_EXCEEDED", "摘要输出预算已耗尽");
+        /** 摘要请求只携带 SYSTEM 提示，不授权工具。 */
+        ModelRequest summaryRequest = new ModelRequest(definition.getModelId(), List.of(prompt), List.of(),
+                new ModelOptions(0.0, definition.getContextPolicy().getMaxSummaryTokens(), null),
+                new ModelExecutionContext(deadline, cancellation, remainingCharacters));
+        /** 完成后才交付摘要文本的监听器。 */
+        ModelEventListener listener = new ValidatingModelEventListener(new ModelEventListener() {
+            /**
+             * 保存完整模型回合。
+             *
+             * @param event 模型事件
+             */
+            @Override
+            public void onEvent(ModelEvent event) {
+                if (event instanceof TurnCompleted turn) received[0] = turn.getTurn();
+            }
+
+            /**
+             * 传播摘要失败。
+             *
+             * @param error 模型错误
+             */
+            @Override
+            public void onError(Throwable error) {
+                completed.completeExceptionally(error);
+            }
+
+            /**
+             * 交付唯一完整摘要回合。
+             */
+            @Override
+            public void onComplete() {
+                if (received[0] == null) completed.completeExceptionally(
+                        new IllegalStateException("摘要模型未返回完整回合"));
+                else completed.complete(received[0]);
+            }
+        });
+        /** 摘要线程的取消注册动作。 */
+        Thread worker = Thread.currentThread();
+        Runnable unregister = cancellation.onCancel(() -> {
+            if (Thread.currentThread() != worker) worker.interrupt();
+        });
+        try {
+            gateway.generate(summaryRequest, listener);
+            /** 距全局截止时间的等待毫秒数。 */
+            long waitMillis = Math.max(1, Duration.between(Instant.now(), deadline).toMillis());
+            /** 摘要模型的完整回合。 */
+            ModelTurn turn = completed.get(waitMillis, TimeUnit.MILLISECONDS);
+            if (turn.getFinishReason() != ModelFinishReason.STOP || !turn.getAssistantMessage().getToolCalls().isEmpty()) {
+                throw new IllegalStateException("摘要模型未正常结束");
+            }
+            /** 完整摘要文本。 */
+            String summaryText = getText(turn.getAssistantMessage()).trim();
+            if (summaryText.isEmpty()) throw new IllegalStateException("摘要模型返回空文本");
+            synchronized (stateLock) {
+                if (terminal) throw new ExecutionControlException("CANCELLED", "运行已经结束");
+                outputCharacters += summaryText.length();
+                if (outputCharacters > definition.getLimits().getMaxOutputCharacters()) {
+                    throw new ExecutionControlException("LIMIT_EXCEEDED", "摘要输出超过字符预算");
+                }
+                if (turn.getUsage() != null && usageByModelCallId.putIfAbsent(callId, turn.getUsage()) == null) {
+                    usageTotal = usageTotal == null ? turn.getUsage() : usageTotal.plus(turn.getUsage());
+                    emitLocked(AgentEventType.USAGE, null, null, null, turn.getUsage());
+                }
+            }
+            return summaryText;
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new ExecutionControlException("CANCELLED", "摘要等待被中断");
+        } catch (TimeoutException exception) {
+            throw new ExecutionControlException("TIMEOUT", "摘要请求超过运行时限");
+        } catch (ExecutionException exception) {
+            throw new IllegalStateException("摘要模型调用失败", exception.getCause());
+        } finally {
+            unregister.run();
+        }
+    }
+
+    /**
+     * 按配置和本轮最大生成量计算可用于输入的空间。
+     *
+     * @return 输入 token 估算容量
+     */
+    private int inputCapacity() {
+        /** 可信窗口策略。 */
+        ContextPolicy policy = definition.getContextPolicy();
+        /** 本次与会话合并的生成选项。 */
+        Integer completion = request.getModelOptions().overlay(session.options()).getMaxCompletionTokens();
+        return policy.getWindowTokens() - Math.max(policy.getReserveOutputTokens(),
+                completion == null ? 0 : completion);
     }
 
     /**
@@ -626,7 +885,8 @@ final class DefaultAgentRun implements AgentRun {
             AgentDefinition childDefinition = new AgentDefinition(definition.getAppId(), childAgentId,
                     parameters.name, parameters.description, definition.getModelId(),
                     subAgentTemplate.getTemplateId(),
-                    parameters.toolIds == null ? List.of() : parameters.toolIds, List.of(), childLimits);
+                    parameters.toolIds == null ? List.of() : parameters.toolIds, List.of(), childLimits,
+                    definition.getContextPolicy());
             /** 父级本轮有效模型选项的不可变快照。 */
             ModelOptions effectiveOptions = request.getModelOptions().overlay(session.options());
             /** 子级只接收委派任务和显式上下文。 */
@@ -648,7 +908,7 @@ final class DefaultAgentRun implements AgentRun {
                     gateway, childTools,
                     childTools.getAuthorizedTool("create_plan") == null ? null : planStepTemplate,
                     childTools.getAuthorizedTool("create_sub_agent") == null ? null : subAgentTemplate,
-                    sessions, executor, depth + 1, deadline);
+                    summaryTemplate, sessions, executor, depth + 1, deadline);
             emitToolEvent(new ToolExecutionEvent(call.getCallId(), call.getName(),
                     ToolExecutionPhase.CALLING, null));
             /** 子级在父取消时终止，完成回调再续接父级模型。 */

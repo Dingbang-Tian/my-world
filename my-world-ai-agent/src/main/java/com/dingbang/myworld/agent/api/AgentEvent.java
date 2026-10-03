@@ -142,7 +142,8 @@ public final class AgentEvent {
         this.sequence = sequence;
         this.timestamp = Objects.requireNonNull(timestamp, "事件时间不能为 null");
         this.type = Objects.requireNonNull(type, "事件类型不能为 null");
-        if ((type == AgentEventType.TEXT_DELTA || type == AgentEventType.REASONING_DELTA)
+        if ((type == AgentEventType.TEXT_DELTA || type == AgentEventType.REASONING_DELTA
+                || type == AgentEventType.MEMORY_COMPRESSED)
                 && (text == null || result != null || toolExecution != null || usage != null || plan != null)) {
             throw new IllegalArgumentException("文本事件必须只包含文本增量");
         }
@@ -162,6 +163,7 @@ public final class AgentEvent {
             throw new IllegalArgumentException("计划事件必须只包含计划内容");
         }
         if (type != AgentEventType.TEXT_DELTA && type != AgentEventType.REASONING_DELTA
+                && type != AgentEventType.MEMORY_COMPRESSED
                 && type != AgentEventType.TOOL_EXECUTION && type != AgentEventType.USAGE && !planType
                 && (text != null || result == null || toolExecution != null || usage != null || plan != null)) {
             throw new IllegalArgumentException("终态事件必须只包含最终结果");

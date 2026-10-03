@@ -2,6 +2,7 @@ package com.dingbang.myworld.aiapp.codegen.application;
 
 import com.dingbang.myworld.agent.api.AgentDefinition;
 import com.dingbang.myworld.agent.api.AgentLimits;
+import com.dingbang.myworld.agent.memory.ContextPolicy;
 import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
 import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
 import com.dingbang.myworld.agent.prompt.PromptRepository;
@@ -100,6 +101,29 @@ public final class CodegenFactory {
                                  Path workspace, boolean writeEnabled, boolean commandEnabled,
                                  List<String> environmentAllowlist, boolean planEnabled,
                                  boolean subAgentEnabled) {
+        return create(gateway, prompts, modelId, workspace, writeEnabled, commandEnabled,
+                environmentAllowlist, planEnabled, subAgentEnabled, ContextPolicy.defaults());
+    }
+
+    /**
+     * 根据可信配置组装代码生成服务及上下文策略。
+     *
+     * @param gateway 单次模型入口
+     * @param prompts 已加载模板仓库
+     * @param modelId 模型标识
+     * @param workspace 工作目录
+     * @param writeEnabled 文件写入权限
+     * @param commandEnabled 命令执行权限
+     * @param environmentAllowlist 子进程环境变量白名单
+     * @param planEnabled 是否授权创建计划
+     * @param subAgentEnabled 是否授权创建子 Agent
+     * @param contextPolicy 上下文窗口与摘要阈值
+     * @return 代码生成服务
+     */
+    public CodegenService create(ModelGateway gateway, PromptRepository prompts, String modelId,
+                                 Path workspace, boolean writeEnabled, boolean commandEnabled,
+                                 List<String> environmentAllowlist, boolean planEnabled,
+                                 boolean subAgentEnabled, ContextPolicy contextPolicy) {
         /** 固定工作目录的路径策略。 */
         WorkspacePolicy policy = new WorkspacePolicy(workspace);
         /** 工作目录内的文件工具。 */
@@ -150,7 +174,7 @@ public final class CodegenFactory {
         /** 只属于代码生成应用的 Agent 定义。 */
         AgentDefinition definition = new AgentDefinition(CodegenService.APP_ID, CodegenService.AGENT_ID,
                 "代码生成助手", "分析和修改指定工作目录中的代码", modelId, "codegen/system",
-                List.of(), skillIds, AgentLimits.defaults(planEnabled || subAgentEnabled ? 24 : 8));
+                List.of(), skillIds, AgentLimits.defaults(planEnabled || subAgentEnabled ? 24 : 8), contextPolicy);
         /** 运行与工具执行服务。 */
         DefaultAgentService agent = new DefaultAgentService(gateway, prompts, List.of(definition),
                 new ToolRegistry(selected), skills, ForkJoinPool.commonPool());

@@ -2,6 +2,7 @@ package com.dingbang.myworld.agent.session;
 
 import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.model.Message;
+import com.dingbang.myworld.agent.memory.MemorySummary;
 
 import java.util.List;
 
@@ -35,7 +36,7 @@ public interface Session {
     void release();
 
     /**
-     * 读取完整历史和版本的同一快照。
+     * 读取完整历史、版本和摘要的同一快照。
      *
      * @return 不可变快照
      */
@@ -48,6 +49,15 @@ public interface Session {
      * @param messages 完整的用户、助手及工具消息
      */
     void appendExchange(long expectedVersion, List<Message> messages);
+
+    /**
+     * 在独占运行中原子更新摘要覆盖位置，不删除原始历史。
+     *
+     * @param expectedVersion 当前历史版本
+     * @param expectedCoveredMessageCount 原有摘要覆盖的消息数量
+     * @param summary 新摘要
+     */
+    void updateSummary(long expectedVersion, int expectedCoveredMessageCount, MemorySummary summary);
 
     /**
      * 返回会话级模型选项。

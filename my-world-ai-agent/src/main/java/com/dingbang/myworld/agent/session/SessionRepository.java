@@ -2,6 +2,7 @@ package com.dingbang.myworld.agent.session;
 
 import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.model.Message;
+import com.dingbang.myworld.agent.memory.MemorySummary;
 
 import java.util.List;
 
@@ -47,4 +48,24 @@ public interface SessionRepository {
      */
     Session importSession(String sessionId, String ownerId, String appId, String agentId,
                           long version, ModelOptions options, List<Message> history);
+
+    /**
+     * 导入完整历史及摘要。
+     *
+     * @param sessionId 会话标识
+     * @param ownerId 所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param version 历史版本
+     * @param options 会话模型选项
+     * @param history 完整原始历史
+     * @param summary 已提交摘要
+     * @return 导入的会话
+     */
+    default Session importSession(String sessionId, String ownerId, String appId, String agentId,
+                                  long version, ModelOptions options, List<Message> history,
+                                  MemorySummary summary) {
+        if (summary != null) throw new UnsupportedOperationException("仓库不支持摘要恢复");
+        return importSession(sessionId, ownerId, appId, agentId, version, options, history);
+    }
 }

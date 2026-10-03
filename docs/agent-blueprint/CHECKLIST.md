@@ -17,8 +17,8 @@
 | F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | `AgentSkill` 按 ID 聚合工具和说明；运行时去重并写入 SYSTEM；S10/S11 `CodegenFactory` 只为 codegen 组装文件技能，按 write-enabled 选择 5 或 9 个工具；`CodegenServiceTest` 验证 |
 | F08 | 关闭技能与内置工具，作为普通客户端使用 | AgentClient.clearAllSkills、getAllTools | ai-agent，S06/S09 | 定义可使用空 skillIds/toolIds；S04 原无工具对话和 S06 未授权工具错误已验证；管理 API 待 S09 |
 | F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S09 `SessionRepository` 保存完整已完成交换及版本；`AgentSessionServiceTest` 验证查询与恢复，S06 工具历史回归通过；数据库持久化待 S18 |
-| F10 | Token/轮次触发摘要、摘要回注、压缩事件 | AgentClientSession.summarizeHistory* | ai-agent，S15 | 待完成 |
-| F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | S09 `AgentSessionService.exportSession/importSession` 含 schemaVersion、归属、历史和会话选项；导入重新绑定当前可信定义；摘要配置待 S15 |
+| F10 | Token/轮次触发摘要、摘要回注、压缩事件 | AgentClientSession.summarizeHistory* | ai-agent，S15 | `ContextPolicy`、`ContextAssembler`、`MemorySummary` 与 `DefaultAgentRun.prepareInitialContext`；`ContextMemoryTest` 验证阈值、分块、工具配对、失败、超窗、事件及用量；原始历史保留 |
+| F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | `SessionExportCodec` 导出可选 `memorySummary` 和完整原始历史；导入校验覆盖位置在交换边界并绑定当前可信定义与策略；`ContextMemoryTest.compressesRoundsAndRestoresSummary` 验证 |
 | F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | `orchestration/Plan`、`PlanRunner`、`CreatePlanTool` 与 `DefaultAgentRun`；`PlanExecutionTest` 验证步骤依赖、STOP/CONTINUE、递归拒绝、共享预算和父取消；`CodegenCommandLoopTest.planCarriesCompileFailureIntoCorrectionStep` 验证真实编译失败与修正，完整 81/81 测试通过 |
 | F13 | 子 Agent 定义、独立会话、结果回传 | executeSubAgentTool、CreateSubAgentTool | ai-agent，S14 | `CreateSubAgentTool`、`SubAgentRunner`、`DefaultAgentRun.startSubAgent`；`SubAgentExecutionTest` 验证独立历史、父工具子集、深度、失败、取消及预算；`CodegenServiceTest.delegatesReadOnlyCodeReviewToSubAgent` 验证实际只读文件审查；完整 89/89 通过 |
 | F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | S09 会话级 `ModelOptions` 与 `AgentRequest` 单次选项逐层覆盖；两会话及导入后覆盖由 `AgentSessionServiceTest` 验证；跨协议待 S16 |

@@ -1,6 +1,7 @@
 package com.dingbang.myworld.aiapp.codegen.config;
 
 import com.dingbang.myworld.agent.prompt.PromptRepository;
+import com.dingbang.myworld.agent.memory.ContextPolicy;
 import com.dingbang.myworld.aiapp.codegen.api.CodegenService;
 import com.dingbang.myworld.aiapp.codegen.application.CodegenFactory;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
@@ -44,6 +45,8 @@ public class CodegenConfiguration {
         return new CodegenFactory().create(gateway, prompts, properties.getModelId(),
                 workspace, properties.isWriteEnabled(), properties.isCommandEnabled(),
                 properties.getCommandEnvironmentAllowlist(), properties.isPlanEnabled(),
-                properties.isSubAgentEnabled());
+                properties.isSubAgentEnabled(), new ContextPolicy(properties.getContextWindowTokens(),
+                        properties.getSummaryTriggerRounds(), properties.getSummaryTriggerTokens(),
+                        properties.getReserveOutputTokens(), properties.getMaxSummaryTokens()));
     }
 }

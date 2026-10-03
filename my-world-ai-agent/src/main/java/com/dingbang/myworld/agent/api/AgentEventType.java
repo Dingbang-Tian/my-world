@@ -15,6 +15,8 @@ public enum AgentEventType {
     REASONING_DELTA,
     /** 单次模型调用的最终 token 用量。 */
     USAGE,
+    /** 原始历史的完整交换已被摘要覆盖。 */
+    MEMORY_COMPRESSED,
     /**
      * 工具准备、调用、完成或失败阶段。
      */

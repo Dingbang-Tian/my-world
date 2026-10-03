@@ -2,6 +2,7 @@ package com.dingbang.myworld.agent.session;
 
 import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.model.Message;
+import com.dingbang.myworld.agent.memory.MemorySummary;
 import lombok.Data;
 
 import java.util.List;
@@ -36,6 +37,8 @@ public final class ImportedSession {
 
     /** 完整历史。 */
     private final List<Message> messages;
+    /** 已提交的摘要，可为 null。 */
+    private final MemorySummary summary;
 
     /**
      * 固定解码后的会话数据。
@@ -50,6 +53,23 @@ public final class ImportedSession {
      */
     public ImportedSession(String sessionId, String ownerId, String appId, String agentId,
                            long version, ModelOptions options, List<Message> messages) {
+        this(sessionId, ownerId, appId, agentId, version, options, messages, null);
+    }
+
+    /**
+     * 固定含摘要的已解码会话。
+     *
+     * @param sessionId 会话标识
+     * @param ownerId 所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param version 历史版本
+     * @param options 会话模型选项
+     * @param messages 完整原始消息
+     * @param summary 已提交摘要
+     */
+    public ImportedSession(String sessionId, String ownerId, String appId, String agentId,
+                           long version, ModelOptions options, List<Message> messages, MemorySummary summary) {
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         this.ownerId = Objects.requireNonNull(ownerId, "所有者标识不能为 null");
         this.appId = Objects.requireNonNull(appId, "应用标识不能为 null");
@@ -57,5 +77,6 @@ public final class ImportedSession {
         this.version = version;
         this.options = Objects.requireNonNull(options, "会话选项不能为 null");
         this.messages = List.copyOf(Objects.requireNonNull(messages, "会话消息不能为 null"));
+        this.summary = summary;
     }
 }
