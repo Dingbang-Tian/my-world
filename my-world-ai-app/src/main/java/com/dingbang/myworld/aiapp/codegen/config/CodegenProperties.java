@@ -4,7 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import java.util.List;
 
 /**
- * 代码生成应用的可信模型、目录与写权限配置。
+ * 代码生成应用的可信模型、目录和工具权限配置。
  *
  * @author Sebastian
  * @since 2026/10/03
@@ -19,6 +19,10 @@ public final class CodegenProperties {
     private boolean writeEnabled;
     /** 是否允许命令执行工具。 */
     private boolean commandEnabled;
+    /** 是否允许模型创建顺序计划。 */
+    private boolean planEnabled;
+    /** 是否允许模型创建独立子 Agent。 */
+    private boolean subAgentEnabled;
     /** 命令进程可继承的环境变量名称。 */
     private List<String> commandEnvironmentAllowlist = List.of("PATH", "JAVA_HOME", "LANG", "TMPDIR");
 
@@ -92,6 +96,42 @@ public final class CodegenProperties {
      */
     public void setCommandEnabled(boolean commandEnabled) {
         this.commandEnabled = commandEnabled;
+    }
+
+    /**
+     * 返回顺序计划工具开关。
+     *
+     * @return 启用时为 true
+     */
+    public boolean isPlanEnabled() {
+        return planEnabled;
+    }
+
+    /**
+     * 设置顺序计划工具开关。
+     *
+     * @param planEnabled 是否授权计划创建
+     */
+    public void setPlanEnabled(boolean planEnabled) {
+        this.planEnabled = planEnabled;
+    }
+
+    /**
+     * 返回子 Agent 委派工具开关。
+     *
+     * @return 启用时为 true
+     */
+    public boolean isSubAgentEnabled() {
+        return subAgentEnabled;
+    }
+
+    /**
+     * 设置子 Agent 委派工具开关。
+     *
+     * @param subAgentEnabled 是否启用
+     */
+    public void setSubAgentEnabled(boolean subAgentEnabled) {
+        this.subAgentEnabled = subAgentEnabled;
     }
 
     /**

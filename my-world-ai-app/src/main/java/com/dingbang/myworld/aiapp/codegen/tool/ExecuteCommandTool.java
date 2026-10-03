@@ -4,9 +4,11 @@ import com.dingbang.myworld.agent.tool.Tool;
 import com.dingbang.myworld.agent.tool.ToolDescriptor;
 import com.dingbang.myworld.agent.tool.ToolExecutionContext;
 import com.dingbang.myworld.agent.tool.ToolExecutionResult;
+import com.dingbang.myworld.agent.orchestration.PlanStepOutcome;
 import com.dingbang.myworld.agent.tool.annotation.ToolParam;
 import com.dingbang.myworld.aiapp.codegen.api.CommandReport;
 import com.dingbang.myworld.aiframework.api.ExecutionControlException;
+import com.dingbang.myworld.aiframework.model.ToolResult;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -30,7 +32,7 @@ import java.util.concurrent.TimeUnit;
  * @author Sebastian
  * @since 2026/10/03
  */
-public final class ExecuteCommandTool implements Tool<ExecuteCommandTool.Args> {
+public final class ExecuteCommandTool implements Tool<ExecuteCommandTool.Args>, PlanStepOutcome {
     /** 输出最多保留的字节数。 */
     private static final int MAX_OUTPUT_BYTES = 16_000;
     /** 命令最长运行时间。 */
@@ -209,6 +211,17 @@ public final class ExecuteCommandTool implements Tool<ExecuteCommandTool.Args> {
                 // 进程退出时关闭流失败不改变已经确定的命令结果。
             }
         }
+    }
+
+    /**
+     * 将真实命令退出码解释为计划步骤结果；工具调用成功不等于编译成功。
+     *
+     * @param result 本命令工具产生的结果
+     * @return 超时或退出码非零时为 true
+     */
+    @Override
+    public boolean stepFailed(ToolResult result) {
+        return !result.getContent().startsWith("timedOut=false\nexitCode=0\n");
     }
 
     /**

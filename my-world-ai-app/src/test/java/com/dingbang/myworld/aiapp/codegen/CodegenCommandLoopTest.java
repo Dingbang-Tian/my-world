@@ -130,6 +130,98 @@ class CodegenCommandLoopTest {
     }
 
     /**
+     * 验证计划中的真实编译失败驱动修正步骤，且整体状态保留失败记录。
+     *
+     * @throws Exception 文件或异步运行失败时
+     */
+    @Test
+    void planCarriesCompileFailureIntoCorrectionStep() throws Exception {
+        /** 当前 JDK 的编译与运行命令。 */
+        String javaHome = System.getProperty("java.home");
+        /** 模型请求序号。 */
+        AtomicInteger turn = new AtomicInteger();
+        /** 本地确定性计划模型。 */
+        com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
+            /** 当前全局模型回合。 */
+            int current = turn.incrementAndGet();
+            switch (current) {
+                case 1 -> toolJson(listener, current, "create_plan", json.valueToTree(Map.of(
+                        "name", "生成编译修正", "description", "创建 HelloAgent.java 并验证",
+                        "steps", List.of("生成源文件", "编译源文件", "根据编译错误修正并重新验证"),
+                        "failurePolicy", "CONTINUE")).toString());
+                case 2 -> toolTurn(listener, current, "create_file", Map.of("path", "HelloAgent.java",
+                        "content", "public class HelloAgent { public static void main(String[] args) { System.out.println(\"HelloAgent\"); }\n"));
+                case 3 -> textTurn(listener, "已生成源文件");
+                case 4 -> toolTurn(listener, current, "execute_command", Map.of("command",
+                        "\"" + javaHome + "/bin/javac\" HelloAgent.java"));
+                case 5 -> {
+                    assertThat(lastToolResult(request).getContent()).contains("exitCode=1");
+                    textTurn(listener, "编译失败，需要修正");
+                }
+                case 6 -> {
+                    assertThat(request.getMessages().stream().map(message -> message.getContentBlocks().isEmpty()
+                                    ? "" : ((TextContentBlock) message.getContentBlocks().get(0)).getText()).toList())
+                            .anyMatch(value -> value.contains("步骤 2 [FAILED]") && value.contains("exitCode=1"));
+                    toolTurn(listener, current, "view_file", Map.of("path", "HelloAgent.java"));
+                }
+                case 7 -> {
+                    /** 真实 view_file 返回的内容版本。 */
+                    String hash = lastToolResult(request).getContent().substring(7, 71);
+                    toolTurn(listener, current, "edit_file", Map.of("path", "HelloAgent.java",
+                            "expectedHash", hash, "mode", "append", "content", "}\n"));
+                }
+                case 8 -> toolTurn(listener, current, "execute_command", Map.of("command",
+                        "\"" + javaHome + "/bin/javac\" HelloAgent.java && \"" + javaHome
+                                + "/bin/java\" HelloAgent"));
+                case 9 -> {
+                    assertThat(lastToolResult(request).getContent()).contains("exitCode=0", "HelloAgent");
+                    textTurn(listener, "已修正并通过编译运行");
+                }
+                case 10 -> {
+                    assertThat(lastToolResult(request).getErrorCode()).isEqualTo("PLAN_FAILED");
+                    textTurn(listener, "最终文件已验证，但计划中曾有编译失败");
+                }
+                default -> throw new AssertionError("多余模型回合");
+            }
+        };
+        /** 同时授权文件、命令与计划的代码生成服务。 */
+        CodegenService service = new CodegenFactory().create(gateway,
+                new PromptTemplateRegistry(new DefaultResourceLoader(), Map.of(), Map.of()),
+                "scripted", workspace, true, true, List.of("PATH", "JAVA_HOME", "LANG", "TMPDIR"), true);
+        /** 真实计划运行结果。 */
+        AgentResult result = service.run("owner", null, "s13-codegen", "生成、编译并修正 Java 文件");
+        assertThat(result.getStatus()).isEqualTo(AgentResultStatus.FAILED);
+        assertThat(result.getError().getCode()).isEqualTo("PLAN_FAILED");
+        assertThat(result.getError().getMessage()).contains("步骤 2 [FAILED]", "步骤 3 [SUCCEEDED]");
+        assertThat(turn.get()).isEqualTo(10);
+        assertThat(Files.readString(workspace.resolve("HelloAgent.java"))).endsWith("}\n");
+        assertThat(Files.exists(workspace.resolve("HelloAgent.class"))).isTrue();
+        assertThat(service.commandReports(result.getRunId())).extracting("exitCode")
+                .containsExactly(1, 0);
+        assertThat(service.artifacts(result.getRunId())).extracting("action")
+                .containsExactly("CREATE", "EDIT");
+        System.out.println("S13 codegen trace: create_plan -> create_file -> javac=1 [FAILED]"
+                + " -> view/edit -> javac+java=0 [SUCCEEDED] -> plan FAILED");
+    }
+
+    /**
+     * 发送带原始 JSON 参数的计划工具模型回合。
+     *
+     * @param listener 模型监听器
+     * @param turn 全局模型回合
+     * @param name 工具名称
+     * @param arguments JSON 参数
+     */
+    private void toolJson(ModelEventListener listener, int turn, String name, String arguments) {
+        /** 完整助手工具消息。 */
+        Message assistant = new Message("assistant-" + turn, Role.ASSISTANT, List.of(),
+                List.of(new ToolCall("call-" + turn, name, arguments)), List.of(), Map.of());
+        listener.onEvent(new TurnCompleted(new com.dingbang.myworld.aiframework.api.ModelTurn(
+                assistant, ModelFinishReason.TOOL_CALLS)));
+        listener.onComplete();
+    }
+
+    /**
      * 从模型请求中取得上一次工具结果。
      *
      * @param request 当前模型请求

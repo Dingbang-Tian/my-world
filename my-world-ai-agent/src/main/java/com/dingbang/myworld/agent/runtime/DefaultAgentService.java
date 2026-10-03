@@ -7,6 +7,8 @@ import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.api.AgentService;
 import com.dingbang.myworld.agent.prompt.PromptRepository;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
+import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
+import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
 import com.dingbang.myworld.agent.session.AgentSessionService;
 import com.dingbang.myworld.agent.session.InMemorySessionRepository;
 import com.dingbang.myworld.agent.session.ImportedSession;
@@ -212,6 +214,16 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
         }
         /** 运行级工具授权快照。 */
         ToolRegistry selectedTools = tools.select(authorizedNames);
+        /** 仅对已授权计划工具固定步骤提示词快照。 */
+        PromptTemplateSnapshot planStepTemplate = selectedTools.getDescriptors().stream()
+                .anyMatch(descriptor -> descriptor.getName().equals("create_plan")
+                        && descriptor.getParameterType() == CreatePlanTool.Parameters.class)
+                ? prompts.get("agent/plan-step") : null;
+        /** 仅对已授权子 Agent 工具固定委派模板快照。 */
+        PromptTemplateSnapshot subAgentTemplate = selectedTools.getDescriptors().stream()
+                .anyMatch(descriptor -> descriptor.getName().equals("create_sub_agent")
+                        && descriptor.getParameterType() == CreateSubAgentTool.Parameters.class)
+                ? prompts.get("agent/sub-agent") : null;
         /** 当前运行的系统模板变量。 */
         Map<String, String> variables = promptVariables(definition, request, sessionId, runId,
                 instructions);
@@ -221,7 +233,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
         /** 已校验归属的会话。 */
         Session session = sessionFor(request, sessionId);
         return new DefaultAgentRun(runId, sessionId, definition, request, system, template, session, gateway,
-                selectedTools, executor);
+                selectedTools, planStepTemplate, subAgentTemplate, sessions, executor, 0, null);
     }
 
     /**

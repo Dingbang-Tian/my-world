@@ -22,6 +22,10 @@ public final class AgentLimits {
     private final int eventBufferCapacity;
     /** 从 execute 开始计算的全局运行时限。 */
     private final Duration timeout;
+    /** 单个计划允许的最大步骤数。 */
+    private final int maxPlanSteps;
+    /** 子 Agent 的最大嵌套层数，根运行为零层。 */
+    private final int maxSubAgentDepth;
 
     /**
      * 创建不可变预算。
@@ -34,9 +38,43 @@ public final class AgentLimits {
      */
     public AgentLimits(int maxModelTurns, int maxToolCalls, int maxOutputCharacters,
                        int eventBufferCapacity, Duration timeout) {
+        this(maxModelTurns, maxToolCalls, maxOutputCharacters, eventBufferCapacity, timeout, 6);
+    }
+
+    /**
+     * 创建包含计划步骤上限的不可变预算。
+     *
+     * @param maxModelTurns 最大模型回合数
+     * @param maxToolCalls 最大工具调用数
+     * @param maxOutputCharacters 最大输出字符数
+     * @param eventBufferCapacity 事件缓存容量
+     * @param timeout 全局时限
+     * @param maxPlanSteps 单个计划最大步骤数
+     */
+    public AgentLimits(int maxModelTurns, int maxToolCalls, int maxOutputCharacters,
+                       int eventBufferCapacity, Duration timeout, int maxPlanSteps) {
+        this(maxModelTurns, maxToolCalls, maxOutputCharacters, eventBufferCapacity, timeout,
+                maxPlanSteps, 2);
+    }
+
+    /**
+     * 创建包含计划和子 Agent 深度限制的运行预算。
+     *
+     * @param maxModelTurns 最大模型回合数
+     * @param maxToolCalls 最大工具调用数
+     * @param maxOutputCharacters 最大输出字符数
+     * @param eventBufferCapacity 事件缓存容量
+     * @param timeout 全局时限
+     * @param maxPlanSteps 单个计划最大步骤数
+     * @param maxSubAgentDepth 子 Agent 最大嵌套层数，可为零
+     */
+    public AgentLimits(int maxModelTurns, int maxToolCalls, int maxOutputCharacters,
+                       int eventBufferCapacity, Duration timeout, int maxPlanSteps,
+                       int maxSubAgentDepth) {
         Objects.requireNonNull(timeout, "运行时限不能为 null");
         if (maxModelTurns < 1 || maxToolCalls < 0 || maxOutputCharacters < 1 || eventBufferCapacity < 1
-                || timeout.compareTo(Duration.ofMillis(1)) < 0 || timeout.compareTo(Duration.ofDays(1)) > 0) {
+                || maxPlanSteps < 1 || maxSubAgentDepth < 0 || timeout.compareTo(Duration.ofMillis(1)) < 0
+                || timeout.compareTo(Duration.ofDays(1)) > 0) {
             throw new IllegalArgumentException("运行预算无效");
         }
         this.maxModelTurns = maxModelTurns;
@@ -44,6 +82,8 @@ public final class AgentLimits {
         this.maxOutputCharacters = maxOutputCharacters;
         this.eventBufferCapacity = eventBufferCapacity;
         this.timeout = timeout;
+        this.maxPlanSteps = maxPlanSteps;
+        this.maxSubAgentDepth = maxSubAgentDepth;
     }
 
     /**

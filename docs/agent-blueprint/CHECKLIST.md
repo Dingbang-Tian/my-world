@@ -1,6 +1,6 @@
 # 功能保留、改进与验收清单
 
-状态说明：当前所有条目均为计划，未在 myWorld 实现验证。实施者应在工作副本中填写代码位置、测试名称/命令和结果，不能只勾选“已迁移”。
+状态说明：各行以“实现与证据”列为准；未填写证据的能力仍待完成。实施者应记录代码位置、测试名称/命令和结果，不能只勾选“已迁移”。
 
 参考路径根为 Agent4J 的 `src/main/java/ink/icoding/llm/`，目标路径根见 ARCHITECTURE。
 
@@ -19,11 +19,11 @@
 | F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S09 `SessionRepository` 保存完整已完成交换及版本；`AgentSessionServiceTest` 验证查询与恢复，S06 工具历史回归通过；数据库持久化待 S18 |
 | F10 | Token/轮次触发摘要、摘要回注、压缩事件 | AgentClientSession.summarizeHistory* | ai-agent，S15 | 待完成 |
 | F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | S09 `AgentSessionService.exportSession/importSession` 含 schemaVersion、归属、历史和会话选项；导入重新绑定当前可信定义；摘要配置待 S15 |
-| F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | 待完成 |
-| F13 | 子 Agent 定义、独立会话、结果回传 | executeSubAgentTool、CreateSubAgentTool | ai-agent，S14 | 待完成 |
+| F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | `orchestration/Plan`、`PlanRunner`、`CreatePlanTool` 与 `DefaultAgentRun`；`PlanExecutionTest` 验证步骤依赖、STOP/CONTINUE、递归拒绝、共享预算和父取消；`CodegenCommandLoopTest.planCarriesCompileFailureIntoCorrectionStep` 验证真实编译失败与修正，完整 81/81 测试通过 |
+| F13 | 子 Agent 定义、独立会话、结果回传 | executeSubAgentTool、CreateSubAgentTool | ai-agent，S14 | `CreateSubAgentTool`、`SubAgentRunner`、`DefaultAgentRun.startSubAgent`；`SubAgentExecutionTest` 验证独立历史、父工具子集、深度、失败、取消及预算；`CodegenServiceTest.delegatesReadOnlyCodeReviewToSubAgent` 验证实际只读文件审查；完整 89/89 通过 |
 | F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | S09 会话级 `ModelOptions` 与 `AgentRequest` 单次选项逐层覆盖；两会话及导入后覆盖由 `AgentSessionServiceTest` 验证；跨协议待 S16 |
 | F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai-framework，S07/S16 | S07 可传 `reasoning_effort`，解析 `reasoning_content` 增量并保留助手历史元数据；供应商特有 signature 与能力差异待 S16 |
-| F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | S07 解析 usage 尾块，发 `UsageReported`/Agent USAGE，完整回合与最终 AgentResult 保留并汇总已完成回合用量；父子去重与指标待 S14/S21 |
+| F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | S07 解析 usage 尾块，发 `UsageReported`/Agent USAGE；S14 `DefaultAgentRun` 用 `runId:model:turnNumber` 作为 modelCallId，按调用标识去重汇总父子已完成回合；`SubAgentExecutionTest.delegatesReadOnlyReviewAndKeepsHistoriesSeparate` 验证父最终用量含子级且不双算；S21 指标待完成 |
 | F17 | 可开关的请求与 SSE 调试信息 | LLMRequestDebugLogger | ai-framework，S07/S21 | 待完成 |
 | F18 | 环境上下文提示、附件与多模态消息 | buildSystemContext、MessageAttachment 等 | agent/ai-framework/codegen，S10/S16 | 待完成 |
 
@@ -43,8 +43,8 @@
 | move_file | 移动或重命名、目标父目录、目标冲突 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
 | delete_file | 删除文件，目标缺失与非文件的明确结果 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
 | execute_command | 平台 shell、cwd、退出码、输出、超时、取消 | 同上 | S12 | `ExecuteCommandTool`；`ExecuteCommandToolTest` 与 `CodegenCommandLoopTest` 验证本机执行、限额、取消和编译纠错；可枚举进程的环境中子进程取消/超时回收 2/2 通过，见 notes/S12.md |
-| create_plan | 创建并执行顺序计划，步骤上下文和事件 | ai-agent/orchestration | S13 | 待完成 |
-| create_sub_agent | 创建子任务会话、继承授权能力、返回结果 | ai-agent/orchestration | S14 | 待完成 |
+| create_plan | 创建并执行顺序计划，步骤上下文和事件 | ai-agent/orchestration | S13 | `CreatePlanTool` 仅在可信定义授权时提供；步骤提示词、结果与工具产物显式传递，`PlanExecutionTest` 和 `CodegenServiceTest.executesEnabledPlanWithSharedFileTools` 验证 |
+| create_sub_agent | 创建子任务会话、继承授权能力、返回结果 | ai-agent/orchestration | S14 | `CreateSubAgentTool` 与 `SubAgentRunner`；模型只能请求父授权工具子集，省略 `toolIds` 时无工具；独立会话与 runId、配对父 callId 的结果由 `SubAgentExecutionTest` 验证 |
 
 每个参数的名称、默认值和匹配语义，实施时对照对应 Tool 与 builtin/param 文件共同确认。发现 README/注释和方法体不同，以实际实现作为分析起点，并记录最终采用的行为。前三类技能（文件、命令、编排）同样全部提供，只按应用配置启用。
 
@@ -129,8 +129,8 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 | A03 | 工具参数非法 | S07 本地 HTTP/Agent 集成验证错误参数不执行 Java 工具、`TOOL_VALIDATION_ERROR` 回传模型，修正调用后仅执行一次 |
 | A04 | 生成一个小型 Java 程序 | S12 `CodegenCommandLoopTest` 的确定性假模型在临时 workspace 创建 HelloAgent.java；首次 javac 退出 1，读取 hash 并修正后退出 0，`FileArtifact` 和 `CommandReport` 均可查询 |
 | A05 | 插入/替换/追加/移动/删除 | 十二工具对应行为和边界全部有验证 |
-| A06 | 两步骤计划有数据依赖 | 后一步真实接收前一步结果；失败状态准确 |
-| A07 | 子 Agent 检查产物 | 子上下文独立；权限为父子集；父得到结果；usage 不双算 |
+| A06 | 两步骤计划有数据依赖 | S13 `PlanExecutionTest.passesPriorArtifactAndReportsLifecycle` 验证下一步读取前一步模型结果和工具产物；`stopAndContinueDoNotClaimSuccess` 与 codegen 编译纠错轨迹验证失败状态准确 |
+| A07 | 子 Agent 检查产物 | S14 `CodegenServiceTest.delegatesReadOnlyCodeReviewToSubAgent`：父有写权限，子仅获得 `view_file`，读取临时 Review.java 后父取得配对结果，文件未改；`SubAgentExecutionTest` 验证独立历史和用量不双算 |
 | A08 | 对话超压缩阈值 | 原始历史仍可查；下一请求使用摘要；工具交换完整 |
 | A09 | 会话正常关闭后重启 | 从数据库恢复用户、assistant、tool 及摘要，继续回答 |
 | A10 | 外部副作用后模拟落库失败 | 恢复识别不确定状态，不自动重复写入/执行命令 |

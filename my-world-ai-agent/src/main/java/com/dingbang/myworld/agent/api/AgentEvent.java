@@ -1,6 +1,7 @@
 package com.dingbang.myworld.agent.api;
 
 import com.dingbang.myworld.agent.tool.ToolExecutionEvent;
+import com.dingbang.myworld.agent.orchestration.PlanEvent;
 import com.dingbang.myworld.aiframework.api.ModelTokenUsage;
 import lombok.Data;
 
@@ -59,6 +60,9 @@ public final class AgentEvent {
     /** 单次模型调用用量，仅 USAGE 事件时非 null。 */
     private final ModelTokenUsage usage;
 
+    /** 计划生命周期内容，仅计划事件时非 null。 */
+    private final PlanEvent plan;
+
     /**
      * 创建一次运行事件。
      *
@@ -110,6 +114,26 @@ public final class AgentEvent {
     public AgentEvent(String runId, String sessionId, long sequence, Instant timestamp,
                       AgentEventType type, String text, AgentResult result,
                       ToolExecutionEvent toolExecution, ModelTokenUsage usage) {
+        this(runId, sessionId, sequence, timestamp, type, text, result, toolExecution, usage, null);
+    }
+
+    /**
+     * 创建包含计划生命周期内容的运行事件。
+     *
+     * @param runId 运行标识
+     * @param sessionId 会话标识
+     * @param sequence 运行内序号
+     * @param timestamp 事件时间
+     * @param type 事件类型
+     * @param text 文本增量
+     * @param result 终态结果
+     * @param toolExecution 工具阶段
+     * @param usage 模型用量
+     * @param plan 计划生命周期内容
+     */
+    public AgentEvent(String runId, String sessionId, long sequence, Instant timestamp,
+                      AgentEventType type, String text, AgentResult result,
+                      ToolExecutionEvent toolExecution, ModelTokenUsage usage, PlanEvent plan) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         if (sequence < 1) {
@@ -119,25 +143,33 @@ public final class AgentEvent {
         this.timestamp = Objects.requireNonNull(timestamp, "事件时间不能为 null");
         this.type = Objects.requireNonNull(type, "事件类型不能为 null");
         if ((type == AgentEventType.TEXT_DELTA || type == AgentEventType.REASONING_DELTA)
-                && (text == null || result != null || toolExecution != null || usage != null)) {
+                && (text == null || result != null || toolExecution != null || usage != null || plan != null)) {
             throw new IllegalArgumentException("文本事件必须只包含文本增量");
         }
         if (type == AgentEventType.TOOL_EXECUTION
-                && (text != null || result != null || toolExecution == null || usage != null)) {
+                && (text != null || result != null || toolExecution == null || usage != null || plan != null)) {
             throw new IllegalArgumentException("工具事件必须只包含工具阶段");
         }
         if (type == AgentEventType.USAGE
-                && (text != null || result != null || toolExecution != null || usage == null)) {
+                && (text != null || result != null || toolExecution != null || usage == null || plan != null)) {
             throw new IllegalArgumentException("用量事件必须只包含模型用量");
         }
+        /** 当前是否为计划生命周期事件。 */
+        boolean planType = type == AgentEventType.PLAN_CREATED || type == AgentEventType.PLAN_STEP_STARTED
+                || type == AgentEventType.PLAN_STEP_FINISHED || type == AgentEventType.PLAN_FINISHED;
+        if (planType && (plan == null || text != null || result != null
+                || toolExecution != null || usage != null)) {
+            throw new IllegalArgumentException("计划事件必须只包含计划内容");
+        }
         if (type != AgentEventType.TEXT_DELTA && type != AgentEventType.REASONING_DELTA
-                && type != AgentEventType.TOOL_EXECUTION && type != AgentEventType.USAGE
-                && (text != null || result == null || toolExecution != null || usage != null)) {
+                && type != AgentEventType.TOOL_EXECUTION && type != AgentEventType.USAGE && !planType
+                && (text != null || result == null || toolExecution != null || usage != null || plan != null)) {
             throw new IllegalArgumentException("终态事件必须只包含最终结果");
         }
         this.text = text;
         this.result = result;
         this.toolExecution = toolExecution;
         this.usage = usage;
+        this.plan = plan;
     }
 }

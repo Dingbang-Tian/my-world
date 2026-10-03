@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/03（S12 命令工具和确定性代码生成闭环已完成本地验证，等待学习复述）。
+最后更新：2026/10/03（S14 子 Agent 已完成本地验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S13；S12 的命令边界问题等待用户复述；此前阶段的待回答问题仍保留。
-- 当前阶段已实现内容：S12 的 execute_command、环境白名单、cwd/shell/退出码/超时/取消、进程树尽力回收、命令报告与确定性 Java 生成纠错闭环；此前 S10–S11 文件能力继续保留。
-- 当前验证边界：默认 JDK 8 无法构建 Java 21 项目；普通沙箱禁止本地端口绑定和 Java 枚举进程树。完整测试及子进程清理已在具备所需权限的本机执行环境通过。
+- 下一阶段：S15；S14 的父子上下文问题等待用户复述；此前阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S14 的 create_sub_agent、独立子会话与 runId、显式委派上下文、父级工具子集、异步顺序等待、父取消与截止时间、深度和剩余预算限制，以及按 modelCallId 去重的父子用量汇总；codegen 可显式开启子 Agent。
+- 当前验证边界：默认 JDK 8 无法构建 Java 21 项目；普通沙箱禁止本地端口绑定和 Java 枚举进程树。完整测试已在允许本地 HTTP fixture 的本机执行环境通过；未调用真实供应商。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S12.md](notes/S12.md)。JDK 21 下完整 `mvn test` 74/74 通过、无跳过；命令测试 6/6 包含两种子进程清理。未调用真实供应商。
+- 本次交付与证据：见 [notes/S14.md](notes/S14.md)。JDK 21 下完整 `mvn test` 89/89 通过、无跳过；含脚本模型委派代码审查、实际只读文件工具、父子历史隔离、预算与取消验证。未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -31,8 +31,8 @@
 | S10 | Codegen 与读取工具 | 已验证 | 待回答 | [notes/S10-S11.md](notes/S10-S11.md) |
 | S11 | 文件变更工具 | 已验证 | 待回答 | [notes/S10-S11.md](notes/S10-S11.md) |
 | S12 | 命令与生成闭环 | 已验证 | 待回答 | [notes/S12.md](notes/S12.md) |
-| S13 | 计划 | 未开始 | 未开始 | — |
-| S14 | 子 Agent | 未开始 | 未开始 | — |
+| S13 | 计划 | 已验证 | 待回答 | [notes/S13.md](notes/S13.md) |
+| S14 | 子 Agent | 已验证 | 待回答 | [notes/S14.md](notes/S14.md) |
 | S15 | 摘要与上下文 | 未开始 | 未开始 | — |
 | S16 | 多协议与多模态 | 未开始 | 未开始 | — |
 | S17 | Embedding | 未开始 | 未开始 | — |
@@ -79,6 +79,8 @@
 | 2026/10/03 | S08 用可信 AgentLimits 限制全局时间、回合、工具和字符；状态锁裁定唯一终态，取消令牌贯通 Chat SSE 与工具 | 本地脚本模型、Java 工具、HTTP fixture 覆盖取消、超时、迟到错误、输出限额、事件缺口和 usage 去重；55/55 测试通过 | S08–S09/S12 | 已验证 |
 | 2026/10/03 | S09 将进程内会话移至可替换仓库；可信 owner/app/Agent 三重校验，独占执行和版本提交；导出只保留会话数据并在导入时重新绑定当前定义 | `AgentSessionServiceTest` 覆盖隔离、选项、导出恢复、工具配对、版本冲突、忙会话与取消；全项目 58/58 测试通过 | S09/S18 | 已验证 |
 | 2026/10/03 | S12 命令能力独立开关，环境白名单与工作目录显式配置；有界异步读取与启动时限；按 runId 返回文件产物和命令报告 | JDK 21 完整 `mvn test` 74/74 通过；命令测试含取消/超时子进程清理 6/6 通过 | S12/S19 | 已验证 |
+| 2026/10/03 | S13 在唯一 Agent 运行时内执行顺序计划；步骤模型共用父取消、时限、回合、工具和输出预算；codegen 按配置显式开启计划 | `PlanExecutionTest`、`CodegenServiceTest` 与 `CodegenCommandLoopTest` 验证依赖、失败策略、递归限制、预算、取消和真实 javac 纠错；完整 81/81 通过 | S13/S14 | 已验证 |
+| 2026/10/03 | S14 子 Agent 复用唯一 runtime，独立会话与运行标识；父级明确传上下文和已授权工具子集，顺序异步等待，传播取消并收紧剩余预算与深度 | `SubAgentExecutionTest` 覆盖历史隔离、权限、嵌套、预算、失败、取消及单线程执行器；`CodegenServiceTest` 使用真实只读文件工具审查产物；完整 89/89 通过 | S14/S18/S21 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -282,6 +284,40 @@
 待用户回答的问题：见 notes/S12.md；此前阶段待回答内容仍保留
 下一会话最先读取的文件：本 PROGRESS.md、notes/S12.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S13
 下一步具体动作：按 S13 实现计划创建与顺序执行
+```
+
+## 12E. S13 阶段交接
+
+```text
+阶段：S13 计划创建与顺序执行
+目标与已跑通流程：模型 create_plan → PlanRunner 顺序推进 → 同一 Agent runtime 执行每步模型和已授权工具 → 前序结果与产物进入下一步 USER 上下文 → 计划真实状态和事件回父级 → 主模型总结
+已改文件（路径/核心方法）：ai-agent/orchestration 的 Plan、PlanStep、PlanRunner、CreatePlanTool、PlanEvent；runtime/DefaultAgentRun 的 startPlan/advancePlan/completePlanStep/finishPlan；api/AgentEvent、AgentLimits；ai-app/codegen 的计划开关和命令步骤结果判断；详见 notes/S13.md
+新增依赖或配置：无新 Maven 依赖；my-world.codegen.plan-enabled 默认 false；AgentLimits 新增 maxPlanSteps，旧构造器默认 6 步
+验证命令、结果和环境：JDK 21 下完整 `mvn -q test` 81/81 通过、无跳过；普通沙箱本地 HTTP fixture 绑定端口被拒，已在允许 localhost 的本机环境完成全量回归
+对照 CHECKLIST 的条目及证据：F12、create_plan、A06；PlanExecutionTest、CodegenServiceTest.executesEnabledPlanWithSharedFileTools、CodegenCommandLoopTest.planCarriesCompileFailureIntoCorrectionStep
+来源实现与新实现的差异：参考 Plan 是可变字符串列表，CreatePlanTool 用 lastCreatedPlan 共享可变中转，executePlanTool 失败后仍汇总 completed；新实现用不可变定义、每次运行独立状态、程序控制失败策略与最终状态，步骤复用唯一 runtime 和共享预算；未复制参考源码
+未完成工作／真实阻塞：计划步骤内部完整模型对话只在运行中用于下一步，不作为独立会话持久化；父会话保存 create_plan 工具结果中的结构化步骤报告。计划事件仍为进程内有限回放，S18/S19 再做持久化与检查点。无 S14 实施阻塞
+本阶段用户已理解的内容：待回答；工程测试不等于学习掌握
+待用户回答的问题：见 notes/S13.md；此前阶段待回答内容仍保留
+下一会话最先读取的文件：本 PROGRESS.md、notes/S13.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S14
+下一步具体动作：按 S14 实现独立子 Agent 与父子上下文
+```
+
+## 12F. S14 阶段交接
+
+```text
+阶段：S14 子 Agent 与父子上下文
+目标与已跑通流程：父模型 create_sub_agent → 可信参数和工具子集校验 → 独立 childSessionId/childRunId 与委派 SYSTEM/USER → 子运行复用唯一 Agent 循环 → 父运行收到配对 tool 结果并总结
+已改文件（路径/核心方法）：ai-agent/orchestration 的 CreateSubAgentTool、SubAgentRunner；DefaultAgentRun.startSubAgent/finishSubAgent/mergeChildAccounting；AgentLimits.maxSubAgentDepth；agent/sub-agent.md；ai-app/codegen 的显式 sub-agent-enabled 配置；详见 notes/S14.md
+新增依赖或配置：无新依赖；my-world.codegen.sub-agent-enabled 默认 false。子任务 toolIds 必须是父授权工具子集，省略时无工具
+验证命令、结果和环境：JDK 21 下完整 mvn -q test 89/89 通过、零失败/错误/跳过；本地 HTTP fixture 需要允许 localhost 绑定的执行环境；脚本模型和临时 workspace，未调用真实供应商
+对照 CHECKLIST 的条目及证据：F13、create_sub_agent、A07；F16 父子用量按 modelCallId 去重汇总，S21 指标仍待实现
+来源实现与新实现的差异：参考 CreateSubAgentTool 用 lastCreatedAgent/lastTask 跨调用存临时状态并复制全部父工具；新实现每次委派直接传参数，子级只能获父授权子集且不复制父历史
+未完成工作／真实阻塞：子会话当前随 S09 仓库保存在内存，数据库持久化在 S18；并行子 Agent 属后续可选优化；无 S15 实施阻塞
+本阶段用户已理解的内容：待回答；工程测试不等于学习掌握
+待用户回答的问题：见 notes/S14.md；此前阶段待回答内容仍保留
+下一会话最先读取的文件：本 PROGRESS.md、notes/S14.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S15
+下一步具体动作：按 S15 实现上下文窗口与摘要记忆
 ```
 
 ## 13. 后续阶段交接模板

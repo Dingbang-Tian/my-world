@@ -76,6 +76,16 @@ public final class ToolRegistry {
     }
 
     /**
+     * 返回当前运行获授权的工具，供编排器检查工具声明的步骤结果。
+     *
+     * @param name 工具名称
+     * @return 获授权工具；不存在时为 null
+     */
+    public Tool<?> getAuthorizedTool(String name) {
+        return tools.get(name);
+    }
+
+    /**
      * 返回按名称注册的描述。
      *
      * @param name 工具名称

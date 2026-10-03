@@ -12,7 +12,7 @@ import org.springframework.context.annotation.Configuration;
 import java.nio.file.Path;
 
 /**
- * 仅在代码生成应用显式启用时按权限装配文件与命令工具。
+ * 仅在代码生成应用显式启用时按权限装配文件、命令和编排工具。
  *
  * @author Sebastian
  * @since 2026/10/03
@@ -43,6 +43,7 @@ public class CodegenConfiguration {
         }
         return new CodegenFactory().create(gateway, prompts, properties.getModelId(),
                 workspace, properties.isWriteEnabled(), properties.isCommandEnabled(),
-                properties.getCommandEnvironmentAllowlist());
+                properties.getCommandEnvironmentAllowlist(), properties.isPlanEnabled(),
+                properties.isSubAgentEnabled());
     }
 }

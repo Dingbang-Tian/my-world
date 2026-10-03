@@ -19,6 +19,14 @@ public enum AgentEventType {
      * 工具准备、调用、完成或失败阶段。
      */
     TOOL_EXECUTION,
+    /** 计划已创建。 */
+    PLAN_CREATED,
+    /** 计划步骤开始。 */
+    PLAN_STEP_STARTED,
+    /** 计划步骤结束，包含成功或失败状态。 */
+    PLAN_STEP_FINISHED,
+    /** 计划已结束，包含真实的整体状态。 */
+    PLAN_FINISHED,
     /**
      * Agent 正常完成。
      */

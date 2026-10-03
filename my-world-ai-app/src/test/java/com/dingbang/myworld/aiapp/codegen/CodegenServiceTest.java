@@ -168,6 +168,106 @@ class CodegenServiceTest {
     }
 
     /**
+     * 验证应用显式开启计划后，步骤复用同一文件权限与产物记录。
+     *
+     * @throws Exception 文件读取失败时
+     */
+    @Test
+    void executesEnabledPlanWithSharedFileTools() throws Exception {
+        /** 本地模型回合编号。 */
+        AtomicInteger turn = new AtomicInteger();
+        /** 逐步创建文件并检查步骤传递的假模型。 */
+        com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
+            switch (turn.incrementAndGet()) {
+                case 1 -> {
+                    assertThat(request.getTools()).anyMatch(tool -> tool.getName().equals("create_plan"));
+                    toolTurn(listener, "create_plan", "{\"name\":\"生成\",\"description\":\"创建并检查文件\","
+                            + "\"steps\":[\"创建文件\",\"检查文件\"]}");
+                }
+                case 2 -> {
+                    assertThat(request.getTools()).noneMatch(tool -> tool.getName().equals("create_plan"));
+                    toolTurn(listener, "create_file", "{\"path\":\"plan.txt\",\"content\":\"hello\"}");
+                }
+                case 3 -> textTurn(listener, "已创建 plan.txt");
+                case 4 -> {
+                    assertThat(request.getMessages().stream()
+                            .flatMap(message -> message.getToolResults().stream())
+                            .map(result -> result.getContent()).toList())
+                            .anyMatch(value -> value.contains("plan.txt"));
+                    textTurn(listener, "已检查 plan.txt");
+                }
+                case 5 -> textTurn(listener, "生成计划完成");
+                default -> throw new AssertionError("多余模型回合");
+            }
+        };
+        /** 授权文件写入与计划的应用服务。 */
+        CodegenService service = new CodegenFactory().create(gateway,
+                new PromptTemplateRegistry(new DefaultResourceLoader(), Collections.emptyMap(),
+                        Collections.emptyMap()), "scripted", workspace, true, false,
+                List.of("PATH"), true);
+        /** 真实应用运行结果。 */
+        AgentResult result = service.run("owner", null, "plan-enabled", "创建并检查文件");
+        assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
+        assertThat(turn.get()).isEqualTo(5);
+        assertThat(Files.readString(workspace.resolve("plan.txt"))).isEqualTo("hello");
+        assertThat(service.artifacts(result.getRunId())).hasSize(1);
+    }
+
+    /**
+     * 验证父级拥有写权限时仍可只委派只读文件检查给独立子 Agent。
+     *
+     * @throws Exception 创建和读取测试文件失败时
+     */
+    @Test
+    void delegatesReadOnlyCodeReviewToSubAgent() throws Exception {
+        Files.writeString(workspace.resolve("Review.java"), "class Review {}\n");
+        /** 父级模型回合数。 */
+        AtomicInteger parentTurns = new AtomicInteger();
+        /** 子级模型回合数。 */
+        AtomicInteger childTurns = new AtomicInteger();
+        /** 所有模型请求的快照。 */
+        List<ModelRequest> requests = Collections.synchronizedList(new ArrayList<>());
+        /** 脚本模型中的独立子任务和父任务。 */
+        com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
+            requests.add(request);
+            /** 第一条系统消息的文本。 */
+            String system = ((TextContentBlock) request.getMessages().get(0).getContentBlocks().get(0)).getText();
+            if (system.contains("独立会话")) {
+                if (childTurns.incrementAndGet() == 1) {
+                    toolTurn(listener, "view_file", "{\"path\":\"Review.java\"}");
+                } else {
+                    textTurn(listener, "Review.java 已检查，无需修改");
+                }
+            } else if (parentTurns.incrementAndGet() == 1) {
+                toolTurn(listener, "create_sub_agent", "{\"name\":\"代码审查者\","
+                        + "\"description\":\"只读审查源码\",\"task\":\"检查 Review.java\","
+                        + "\"context\":\"只检查文件内容，不修改\",\"toolIds\":[\"view_file\"]}");
+            } else {
+                textTurn(listener, "子 Agent 已检查 Review.java");
+            }
+        };
+        /** 父级明确拥有文件写权限和委派能力的应用服务。 */
+        CodegenService service = new CodegenFactory().create(gateway,
+                new PromptTemplateRegistry(new DefaultResourceLoader(), Collections.emptyMap(),
+                        Collections.emptyMap()), "scripted", workspace, true, false,
+                List.of("PATH"), false, true);
+        /** 完整父级结果。 */
+        AgentResult result = service.run("owner", null, "sub-agent-review", "委派独立审查 Review.java");
+        assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
+        assertThat(parentTurns.get()).isEqualTo(2);
+        assertThat(childTurns.get()).isEqualTo(2);
+        /** 子级首次模型请求。 */
+        ModelRequest childRequest = requests.stream().filter(request ->
+                ((TextContentBlock) request.getMessages().get(0).getContentBlocks().get(0))
+                        .getText().contains("独立会话")).findFirst().orElseThrow();
+        assertThat(childRequest.getTools()).extracting(item -> item.getName()).containsExactly("view_file");
+        assertThat(requests.get(3).getMessages().stream().flatMap(message -> message.getToolResults().stream())
+                .map(item -> item.getContent()).toList()).anyMatch(text -> text.contains("无需修改"));
+        assertThat(Files.readString(workspace.resolve("Review.java"))).isEqualTo("class Review {}\n");
+        assertThat(service.artifacts(result.getRunId())).isEmpty();
+    }
+
+    /**
      * 向监听器发送一次工具调用。
      *
      * @param listener 模型监听器
