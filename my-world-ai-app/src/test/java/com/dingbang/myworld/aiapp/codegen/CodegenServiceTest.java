@@ -72,6 +72,7 @@ class CodegenServiceTest {
         assertThat(calls.get()).isEqualTo(2);
         assertThat(requests.get(0).getTools()).hasSize(5);
         assertThat(requests.get(0).getTools()).noneMatch(tool -> tool.getName().equals("create_file"));
+        assertThat(requests.get(0).getTools()).noneMatch(tool -> tool.getName().equals("execute_command"));
         assertThat(requests.get(1).getMessages()).anyMatch(message -> message.getRole() == Role.TOOL
                 && message.getToolResults().get(0).getContent().contains("hello.txt"));
     }
@@ -103,6 +104,35 @@ class CodegenServiceTest {
                 .isEqualTo(AgentResultStatus.COMPLETED);
         assertThat(errors).containsExactly("TOOL_NOT_FOUND");
         assertThat(Files.exists(workspace.resolve("bad.txt"))).isFalse();
+    }
+
+    /** 模型伪造未授权命令时，注册表拒绝执行且无命令报告。 */
+    @Test
+    void rejectsForgedCommandCall() {
+        /** 模型调用次数。 */
+        AtomicInteger calls = new AtomicInteger();
+        /** 第二轮收到的工具错误码。 */
+        List<String> errors = new ArrayList<>();
+        /** 伪造命令调用的模型。 */
+        com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
+            if (calls.incrementAndGet() == 1) {
+                toolTurn(listener, "execute_command", "{\"command\":\"echo forbidden > forbidden.txt\"}");
+            } else {
+                request.getMessages().stream().filter(message -> message.getRole() == Role.TOOL)
+                        .forEach(message -> errors.add(message.getToolResults().get(0).getErrorCode()));
+                textTurn(listener, "命令未获授权");
+            }
+        };
+        /** 只读代码生成服务。 */
+        CodegenService service = new CodegenFactory().create(gateway,
+                new PromptTemplateRegistry(new DefaultResourceLoader(), Collections.emptyMap(), Collections.emptyMap()),
+                "scripted", workspace, false);
+        /** 运行结果。 */
+        AgentResult result = service.run("owner", null, "request-command-off", "执行命令");
+        assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
+        assertThat(errors).containsExactly("TOOL_NOT_FOUND");
+        assertThat(service.commandReports(result.getRunId())).isEmpty();
+        assertThat(Files.exists(workspace.resolve("forbidden.txt"))).isFalse();
     }
 
     /**

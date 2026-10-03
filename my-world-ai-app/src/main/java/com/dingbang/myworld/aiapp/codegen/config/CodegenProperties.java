@@ -1,6 +1,7 @@
 package com.dingbang.myworld.aiapp.codegen.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import java.util.List;
 
 /**
  * 代码生成应用的可信模型、目录与写权限配置。
@@ -16,6 +17,10 @@ public final class CodegenProperties {
     private String workspace;
     /** 是否允许四个写文件工具。 */
     private boolean writeEnabled;
+    /** 是否允许命令执行工具。 */
+    private boolean commandEnabled;
+    /** 命令进程可继承的环境变量名称。 */
+    private List<String> commandEnvironmentAllowlist = List.of("PATH", "JAVA_HOME", "LANG", "TMPDIR");
 
     /**
      * 返回模型标识。
@@ -69,5 +74,41 @@ public final class CodegenProperties {
      */
     public void setWriteEnabled(boolean writeEnabled) {
         this.writeEnabled = writeEnabled;
+    }
+
+    /**
+     * 返回命令工具开关。
+     *
+     * @return 启用时为 true
+     */
+    public boolean isCommandEnabled() {
+        return commandEnabled;
+    }
+
+    /**
+     * 设置命令工具开关。
+     *
+     * @param commandEnabled 是否授权命令执行
+     */
+    public void setCommandEnabled(boolean commandEnabled) {
+        this.commandEnabled = commandEnabled;
+    }
+
+    /**
+     * 返回子进程可继承的环境变量名称。
+     *
+     * @return 名称列表
+     */
+    public List<String> getCommandEnvironmentAllowlist() {
+        return commandEnvironmentAllowlist;
+    }
+
+    /**
+     * 设置子进程可继承的环境变量名称。
+     *
+     * @param commandEnvironmentAllowlist 名称列表
+     */
+    public void setCommandEnvironmentAllowlist(List<String> commandEnvironmentAllowlist) {
+        this.commandEnvironmentAllowlist = commandEnvironmentAllowlist;
     }
 }

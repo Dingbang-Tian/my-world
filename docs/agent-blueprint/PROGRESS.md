@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/03（S10–S11 文件工具和代码生成应用已完成本地验证，等待学习复述）。
+最后更新：2026/10/03（S12 命令工具和确定性代码生成闭环已完成本地验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S12；S10–S11 的文件边界问题等待用户复述；S09 及更早阶段的待回答问题仍保留。
-- 当前阶段已实现内容：S10–S11 的 CodegenService、5 个只读和 4 个写文件工具、统一 WorkspacePolicy、SHA-256 版本校验与产物记录；此前 S09 会话和 S08 取消契约继续保留。
-- 当前阻塞：无 S12 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；沙箱禁止本地端口绑定，HTTP fixture 回归在本次环境中不可执行。
+- 下一阶段：S13；S12 的命令边界问题等待用户复述；此前阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S12 的 execute_command、环境白名单、cwd/shell/退出码/超时/取消、进程树尽力回收、命令报告与确定性 Java 生成纠错闭环；此前 S10–S11 文件能力继续保留。
+- 当前验证边界：默认 JDK 8 无法构建 Java 21 项目；普通沙箱禁止本地端口绑定和 Java 枚举进程树。完整测试及子进程清理已在具备所需权限的本机执行环境通过。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S10-S11.md](notes/S10-S11.md)。JDK 21 下新增 8 个临时目录/假模型测试通过；非网络回归通过，HTTP fixture 因沙箱端口限制未复跑；未调用真实供应商。
+- 本次交付与证据：见 [notes/S12.md](notes/S12.md)。JDK 21 下完整 `mvn test` 74/74 通过、无跳过；命令测试 6/6 包含两种子进程清理。未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -30,7 +30,7 @@
 | S09 | 会话与序列化 | 已验证 | 待回答 | [notes/S09.md](notes/S09.md) |
 | S10 | Codegen 与读取工具 | 已验证 | 待回答 | [notes/S10-S11.md](notes/S10-S11.md) |
 | S11 | 文件变更工具 | 已验证 | 待回答 | [notes/S10-S11.md](notes/S10-S11.md) |
-| S12 | 命令与生成闭环 | 未开始 | 未开始 | — |
+| S12 | 命令与生成闭环 | 已验证 | 待回答 | [notes/S12.md](notes/S12.md) |
 | S13 | 计划 | 未开始 | 未开始 | — |
 | S14 | 子 Agent | 未开始 | 未开始 | — |
 | S15 | 摘要与上下文 | 未开始 | 未开始 | — |
@@ -78,6 +78,7 @@
 | 2026/10/03 | S07 以 JDK HttpClient 实现一次请求的 OpenAI Chat SSE 网关；Spring 应用只装配模型配置，工具执行仍由 Agent 负责 | 本地 HTTP fixture 覆盖分片、多工具索引、usage 尾块、HTTP 错误、断流、未知结束原因及实际 Agent 纠错闭环；全项目回归通过 | S07–S08 | 已验证 |
 | 2026/10/03 | S08 用可信 AgentLimits 限制全局时间、回合、工具和字符；状态锁裁定唯一终态，取消令牌贯通 Chat SSE 与工具 | 本地脚本模型、Java 工具、HTTP fixture 覆盖取消、超时、迟到错误、输出限额、事件缺口和 usage 去重；55/55 测试通过 | S08–S09/S12 | 已验证 |
 | 2026/10/03 | S09 将进程内会话移至可替换仓库；可信 owner/app/Agent 三重校验，独占执行和版本提交；导出只保留会话数据并在导入时重新绑定当前定义 | `AgentSessionServiceTest` 覆盖隔离、选项、导出恢复、工具配对、版本冲突、忙会话与取消；全项目 58/58 测试通过 | S09/S18 | 已验证 |
+| 2026/10/03 | S12 命令能力独立开关，环境白名单与工作目录显式配置；有界异步读取与启动时限；按 runId 返回文件产物和命令报告 | JDK 21 完整 `mvn test` 74/74 通过；命令测试含取消/超时子进程清理 6/6 通过 | S12/S19 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -264,6 +265,23 @@
 待用户回答的问题：见 notes/S10-S11.md；此前阶段问题仍保留
 下一会话最先读取的文件：本 PROGRESS.md、notes/S10-S11.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S12
 下一步具体动作：实现受控命令执行，完成生成、编译、修正和验证闭环
+```
+
+## 12D. S12 阶段交接
+
+```text
+阶段：S12 命令执行及第一条生成闭环
+目标与已跑通流程：CodegenService → 假模型 create_file → execute_command(javac 失败) → view_file(hash) → edit_file → execute_command(javac/java 成功) → 最终回答；FileArtifact 与 CommandReport 按 runId 查询
+已改文件（路径/核心方法）：ai-app/codegen/tool/ExecuteCommandTool、api/CommandReport、api/CodegenService、application/CodegenFactory、config/CodegenProperties/CodegenConfiguration；命令模板登记与 S12 两个测试类，见 notes/S12.md
+新增依赖或配置：无新 Maven 依赖；my-world.codegen.command-enabled 默认 false，command-environment-allowlist 默认 PATH/JAVA_HOME/LANG/TMPDIR
+验证命令、结果和环境：JDK 21 下完整 `mvn test` 74/74 通过、无跳过；可枚举进程的本机环境中命令测试 6/6，含子进程取消/超时回收
+对照 CHECKLIST 的条目及证据：execute_command、A04、A11 的命令超时、父取消及子进程清理
+来源实现与新实现的差异：参考实现先 readLine 至 EOF 再 waitFor(60s)，此实现启动时计时、独立有界读取、显式 cwd/环境/授权开关并返回结构化报告；未复制参考源码
+未完成工作／真实阻塞：命令执行的 OS 隔离不是 cwd 所能提供；普通沙箱禁止枚举后代进程时只能保证直接进程清理；不确定副作用恢复归 S19
+本阶段用户已理解的内容：待回答；工程测试不等于学习掌握
+待用户回答的问题：见 notes/S12.md；此前阶段待回答内容仍保留
+下一会话最先读取的文件：本 PROGRESS.md、notes/S12.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S13
+下一步具体动作：按 S13 实现计划创建与顺序执行
 ```
 
 ## 13. 后续阶段交接模板

@@ -42,7 +42,7 @@
 | edit_file | replace、insert、append，行号边界和换行处理 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
 | move_file | 移动或重命名、目标父目录、目标冲突 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
 | delete_file | 删除文件，目标缺失与非文件的明确结果 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
-| execute_command | 平台 shell、cwd、退出码、输出、超时、取消 | 同上 | S12 | 待完成 |
+| execute_command | 平台 shell、cwd、退出码、输出、超时、取消 | 同上 | S12 | `ExecuteCommandTool`；`ExecuteCommandToolTest` 与 `CodegenCommandLoopTest` 验证本机执行、限额、取消和编译纠错；可枚举进程的环境中子进程取消/超时回收 2/2 通过，见 notes/S12.md |
 | create_plan | 创建并执行顺序计划，步骤上下文和事件 | ai-agent/orchestration | S13 | 待完成 |
 | create_sub_agent | 创建子任务会话、继承授权能力、返回结果 | ai-agent/orchestration | S14 | 待完成 |
 
@@ -127,14 +127,14 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 | A01 | 无工具普通任务 | S04 假模型与 S07 本地 HTTP fixture 验证单次文本请求、增量和完整回合；真实供应商待验证 |
 | A02 | 需要一个工具的任务 | S06 假模型覆盖同轮两个调用；S07 本地 HTTP/Agent 集成验证完整 callId 历史与续问 |
 | A03 | 工具参数非法 | S07 本地 HTTP/Agent 集成验证错误参数不执行 Java 工具、`TOOL_VALIDATION_ERROR` 回传模型，修正调用后仅执行一次 |
-| A04 | 生成一个小型 Java 程序 | 文件在指定临时 workspace 创建；命令验证；结果列出产物 |
+| A04 | 生成一个小型 Java 程序 | S12 `CodegenCommandLoopTest` 的确定性假模型在临时 workspace 创建 HelloAgent.java；首次 javac 退出 1，读取 hash 并修正后退出 0，`FileArtifact` 和 `CommandReport` 均可查询 |
 | A05 | 插入/替换/追加/移动/删除 | 十二工具对应行为和边界全部有验证 |
 | A06 | 两步骤计划有数据依赖 | 后一步真实接收前一步结果；失败状态准确 |
 | A07 | 子 Agent 检查产物 | 子上下文独立；权限为父子集；父得到结果；usage 不双算 |
 | A08 | 对话超压缩阈值 | 原始历史仍可查；下一请求使用摘要；工具交换完整 |
 | A09 | 会话正常关闭后重启 | 从数据库恢复用户、assistant、tool 及摘要，继续回答 |
 | A10 | 外部副作用后模拟落库失败 | 恢复识别不确定状态，不自动重复写入/执行命令 |
-| A11 | 模型断流/任务取消/命令超时 | 唯一对应终态、Future 结束、后续工具未启动、资源回收；S04 本地模型错误已验证 FAILED 结果和 Future 完成，S08 已验证取消与全局超时；命令进程超时待 S12 |
+| A11 | 模型断流/任务取消/命令超时 | S04/S08 已验证模型和 Agent 终态；S12 验证命令超时、父取消与直接进程回收，并在允许进程枚举的本机环境验证取消和超时后的子进程回收；受限沙箱下只能保证直接进程清理 |
 | A12 | 两会话使用不同模型参数 | S09 `AgentSessionServiceTest` 验证不同 owner 会话的历史与温度参数隔离、单次覆盖及同会话 `SESSION_BUSY`；S07 双 modelId 回归继续通过 |
 | A13 | 同一任务分别接三协议 fixture | 上层循环无需修改，模型消息语义一致 |
 | A14 | 两类 Embedding 输入 | 向量/索引/usage 正确，非法模型类型和媒体组合明确拒绝 |
