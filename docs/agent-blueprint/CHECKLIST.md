@@ -14,7 +14,7 @@
 | F04 | 工具注解、参数解析和 JSON Schema | core/tool/ToolDescriptor/ToolParam/annotations | ai-agent，S05 | `agent/tool/ToolDescriptor`、`tool/annotation`、`ToolRegistry` 已支持字符串、数值、布尔、枚举和列表/数组并严格校验；`ToolExecutorTest` 本地验证，协议适配待 S07 |
 | F05 | 工具准备、执行、完成与错误回调 | ToolStatus、ToolExecutor、ResultHandler | ai-agent，S05/S08 | `ToolExecutor` 发布 PREPARING/CALLING/COMPLETED/FAILED；S06 映射为带 callId 的 Agent 事件并验证顺序，S08 已验证取消后后续工具不启动及工具上下文协作取消 |
 | F06 | 工具异常反馈给模型，供模型修正 | ToolExecutor.handleToolError | ai-agent，S06 | S06 已验证参数失败为 `TOOL_VALIDATION_ERROR`、Java 工具不执行、模型据结果发出修正调用；其他异常的模型修正待扩展 |
-| F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | `AgentSkill` 按 ID 聚合工具和说明；运行时去重并写入 SYSTEM；codegen 技能待 S10 |
+| F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | `AgentSkill` 按 ID 聚合工具和说明；运行时去重并写入 SYSTEM；S10/S11 `CodegenFactory` 只为 codegen 组装文件技能，按 write-enabled 选择 5 或 9 个工具；`CodegenServiceTest` 验证 |
 | F08 | 关闭技能与内置工具，作为普通客户端使用 | AgentClient.clearAllSkills、getAllTools | ai-agent，S06/S09 | 定义可使用空 skillIds/toolIds；S04 原无工具对话和 S06 未授权工具错误已验证；管理 API 待 S09 |
 | F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S09 `SessionRepository` 保存完整已完成交换及版本；`AgentSessionServiceTest` 验证查询与恢复，S06 工具历史回归通过；数据库持久化待 S18 |
 | F10 | Token/轮次触发摘要、摘要回注、压缩事件 | AgentClientSession.summarizeHistory* | ai-agent，S15 | 待完成 |
@@ -33,15 +33,15 @@
 
 | 工具名 | 必须覆盖的行为 | 归属 | 阶段 | 实现与证据 |
 |---|---|---|---|---|
-| list_directory_tree | 目录树、深度控制、文件/目录区分 | ai-app/codegen/tool | S10 | 待完成 |
-| view_file | 全文/范围、1 起始行号、大文件截断及总行数提示 | 同上 | S10 | 待完成 |
-| search_files | 按文件名关键词查找，多个关键词 | 同上 | S10 | 待完成 |
-| search_in_file | 文件内搜索，多个关键词，匹配行与上下文 | 同上 | S10 | 待完成 |
-| search_in_directory | 递归内容搜索，文件名/行号/上下文 | 同上 | S10 | 待完成 |
-| create_file | 文件内容写入、必要父目录创建、明确覆盖策略 | 同上 | S11 | 待完成 |
-| edit_file | replace、insert、append，行号边界和换行处理 | 同上 | S11 | 待完成 |
-| move_file | 移动或重命名、目标父目录、目标冲突 | 同上 | S11 | 待完成 |
-| delete_file | 删除文件，目标缺失与非文件的明确结果 | 同上 | S11 | 待完成 |
+| list_directory_tree | 目录树、深度控制、文件/目录区分 | ai-app/codegen/tool | S10 | `FileTools`；`FileToolsTest` 临时目录验证 |
+| view_file | 全文/范围、1 起始行号、大文件截断及总行数提示 | 同上 | S10 | `FileTools`；`FileToolsTest` 临时目录验证 |
+| search_files | 按文件名关键词查找，多个关键词 | 同上 | S10 | `FileTools`；`FileToolsTest` 临时目录验证 |
+| search_in_file | 文件内搜索，多个关键词，匹配行与上下文 | 同上 | S10 | `FileTools`；`FileToolsTest` 临时目录验证 |
+| search_in_directory | 递归内容搜索，文件名/行号/上下文 | 同上 | S10 | `FileTools`；`FileToolsTest` 临时目录验证 |
+| create_file | 文件内容写入、必要父目录创建、明确覆盖策略 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
+| edit_file | replace、insert、append，行号边界和换行处理 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
+| move_file | 移动或重命名、目标父目录、目标冲突 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
+| delete_file | 删除文件，目标缺失与非文件的明确结果 | 同上 | S11 | `FileTools` + `WorkspacePolicy`；`FileToolsTest` 验证版本和拒绝副作用 |
 | execute_command | 平台 shell、cwd、退出码、输出、超时、取消 | 同上 | S12 | 待完成 |
 | create_plan | 创建并执行顺序计划，步骤上下文和事件 | ai-agent/orchestration | S13 | 待完成 |
 | create_sub_agent | 创建子任务会话、继承授权能力、返回结果 | ai-agent/orchestration | S14 | 待完成 |

@@ -2,6 +2,7 @@ package com.dingbang.myworld.aiapp.config;
 
 import com.dingbang.myworld.agent.config.AgentModuleConfiguration;
 import com.dingbang.myworld.aiapp.config.model.OpenAiChatConfiguration;
+import com.dingbang.myworld.aiapp.codegen.config.CodegenConfiguration;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 
@@ -12,6 +13,6 @@ import org.springframework.context.annotation.Import;
  * @since 2026/10/01
  */
 @Configuration(proxyBeanMethods = false)
-@Import({AgentModuleConfiguration.class, OpenAiChatConfiguration.class})
+@Import({AgentModuleConfiguration.class, OpenAiChatConfiguration.class, CodegenConfiguration.class})
 public class AiApplicationConfiguration {
 }

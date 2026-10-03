@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/03（S09 已完成本地会话与导出恢复验证，等待学习复述）。
+最后更新：2026/10/03（S10–S11 文件工具和代码生成应用已完成本地验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S10；S09 的会话隔离与恢复问题等待用户复述；S08 及更早阶段的待回答问题仍保留。
-- 当前阶段已实现内容：S09 可替换会话仓库、owner/app/Agent 隔离、独占运行与版本提交、会话级模型选项、完整历史查询、版本化文本/工具消息导出恢复；S08 取消与预算契约继续保留。
-- 当前阻塞：无 S09 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；后续 Maven 命令需显式使用本机 JDK 21。
+- 下一阶段：S12；S10–S11 的文件边界问题等待用户复述；S09 及更早阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S10–S11 的 CodegenService、5 个只读和 4 个写文件工具、统一 WorkspacePolicy、SHA-256 版本校验与产物记录；此前 S09 会话和 S08 取消契约继续保留。
+- 当前阻塞：无 S12 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；沙箱禁止本地端口绑定，HTTP fixture 回归在本次环境中不可执行。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S09.md](notes/S09.md)。JDK 21 下全项目 58/58 测试通过，其中 S09 新增 3 个本地测试；未调用真实供应商。
+- 本次交付与证据：见 [notes/S10-S11.md](notes/S10-S11.md)。JDK 21 下新增 8 个临时目录/假模型测试通过；非网络回归通过，HTTP fixture 因沙箱端口限制未复跑；未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -28,8 +28,8 @@
 | S07 | Chat 协议 | 已验证 | 待回答 | [notes/S07.md](notes/S07.md) |
 | S08 | 流式、取消、预算 | 已验证 | 待回答 | [notes/S08.md](notes/S08.md) |
 | S09 | 会话与序列化 | 已验证 | 待回答 | [notes/S09.md](notes/S09.md) |
-| S10 | Codegen 与读取工具 | 未开始 | 未开始 | — |
-| S11 | 文件变更工具 | 未开始 | 未开始 | — |
+| S10 | Codegen 与读取工具 | 已验证 | 待回答 | [notes/S10-S11.md](notes/S10-S11.md) |
+| S11 | 文件变更工具 | 已验证 | 待回答 | [notes/S10-S11.md](notes/S10-S11.md) |
 | S12 | 命令与生成闭环 | 未开始 | 未开始 | — |
 | S13 | 计划 | 未开始 | 未开始 | — |
 | S14 | 子 Agent | 未开始 | 未开始 | — |
@@ -247,6 +247,23 @@
 待用户回答的问题：见 notes/S09.md；S08 和更早阶段待复述内容仍保留
 下一会话最先读取的文件：本 PROGRESS.md、notes/S09.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S10
 下一步具体动作：实施 S10 代码生成应用与只读文件工具
+```
+
+## 12C. S10–S11 阶段交接
+
+```text
+阶段：S10 代码生成应用和只读文件工具；S11 文件创建、编辑、移动和删除
+目标与已跑通流程：CodegenService → 只读/可写 AgentDefinition → 假模型调用文件工具 → 同 callId 的工具结果回模型；写操作记录 FileArtifact
+已改文件（路径/核心方法）：ai-app/codegen 的 api/application/config/tool；ai-app 资源模板；agent 的 PromptTemplateRegistry 应用模板登记；详见 notes/S10-S11.md
+新增依赖或配置：ai-app 测试依赖 spring-boot-starter-test；my-world.codegen.enabled/model-id/workspace/write-enabled，默认不启用，写工具默认关闭
+验证命令、结果和环境：JDK 21 下指定 FileToolsTest、CodegenServiceTest 共 8/8 通过；排除 3 个本地 HTTP fixture 类后的模块回归通过；完整测试在此沙箱因 SocketException: Operation not permitted 未完成
+对照 CHECKLIST 的条目及证据：五个只读与四个写工具、F07 文件技能；S12 execute_command 尚未实现
+来源实现与新实现的差异：对照 Agent4J 对应九个 Tool/Param 和 FileSystemSkill；目标增加相对路径策略、拒绝覆盖、SHA-256 版本校验、输出上限和产物记录；兼容常见参考参数名，未复制参考源码
+未完成工作／真实阻塞：S12 命令工具及编译闭环；外部并发/崩溃下的副作用恢复归 S19；HTTP fixture 在沙箱内不能绑定端口
+本阶段用户已理解的内容：待回答；工程测试通过不等于学习掌握
+待用户回答的问题：见 notes/S10-S11.md；此前阶段问题仍保留
+下一会话最先读取的文件：本 PROGRESS.md、notes/S10-S11.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S12
+下一步具体动作：实现受控命令执行，完成生成、编译、修正和验证闭环
 ```
 
 ## 13. 后续阶段交接模板

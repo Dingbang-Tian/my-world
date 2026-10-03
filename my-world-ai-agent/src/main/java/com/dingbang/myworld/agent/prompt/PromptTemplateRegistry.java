@@ -36,6 +36,9 @@ public final class PromptTemplateRegistry implements PromptRepository {
         locations.put("agent/plan-step", "classpath:/prompts/agent/plan-step.md");
         locations.put("agent/summary", "classpath:/prompts/agent/summary.md");
         locations.put("agent/sub-agent", "classpath:/prompts/agent/sub-agent.md");
+        locations.put("codegen/system", "classpath:/prompts/codegen/system.md");
+        locations.put("codegen/skills/files", "classpath:/prompts/codegen/skills/files.md");
+        locations.put("codegen/skills/write", "classpath:/prompts/codegen/skills/write.md");
         DEFAULT_LOCATIONS = Collections.unmodifiableMap(locations);
     }
 
@@ -62,6 +65,11 @@ public final class PromptTemplateRegistry implements PromptRepository {
         Map<String, PromptTemplateSnapshot> loaded = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : DEFAULT_LOCATIONS.entrySet()) {
             String templateId = entry.getKey();
+            if (templateId.startsWith("codegen/")
+                    && !resourceLoader.getResource(entry.getValue()).exists()
+                    && !applicationOverrides.containsKey(templateId)) {
+                continue;
+            }
             String content = read(resourceLoader, entry.getValue());
             Boolean enabled = Boolean.TRUE;
             PromptTemplateSpec application = applicationOverrides.get(templateId);
