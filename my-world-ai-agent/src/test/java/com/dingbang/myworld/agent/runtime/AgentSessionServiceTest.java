@@ -20,6 +20,7 @@ import com.dingbang.myworld.aiframework.model.ToolCall;
 import com.dingbang.myworld.aiframework.model.ToolResult;
 import com.dingbang.myworld.aiframework.model.ToolResultStatus;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
+import com.dingbang.myworld.aiframework.model.content.MediaContentBlock;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
@@ -27,6 +28,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.net.URI;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -40,6 +42,67 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * @since 2026/10/03
  */
 class AgentSessionServiceTest {
+    /**
+     * 验证附件进入模型请求并按原内容顺序完成会话导出恢复。
+     */
+    @Test
+    void carriesImageAttachmentThroughAgentAndSession() {
+        /** 只返回文本的脚本模型。 */
+        ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
+            listener.onEvent(new TurnCompleted(new ModelTurn(text("answer", Role.ASSISTANT, "看到图片"),
+                    ModelFinishReason.STOP)));
+            listener.onComplete();
+        });
+        /** 当前 Agent 服务。 */
+        DefaultAgentService service = service(gateway, new InMemorySessionRepository());
+        /** 已启用的会话。 */
+        String sessionId = service.createSession("owner", "app", "assistant", ModelOptions.empty());
+        /** 用户提供的 HTTPS 图片。 */
+        MediaContentBlock image = new MediaContentBlock(MediaContentBlock.Kind.IMAGE, "image/png", "map.png",
+                URI.create("https://example.com/map.png"), null);
+        assertThat(service.run(new AgentRequest("owner", "app", "assistant", sessionId, "r-image",
+                "看图", ModelOptions.empty(), List.of(image))).getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
+        /** 模型看到的用户消息。 */
+        Message sent = gateway.getRequests().get(0).getMessages().get(1);
+        assertThat(sent.getContentBlocks()).hasSize(2);
+        assertThat(((MediaContentBlock) sent.getContentBlocks().get(1)).getUrl()).isEqualTo(image.getUrl());
+        /** 导出并恢复的历史。 */
+        String serialized = service.exportSession("owner", "app", "assistant", sessionId);
+        /** 恢复后的附件。 */
+        MediaContentBlock restored = (MediaContentBlock) new SessionExportCodec().decode(serialized)
+                .getMessages().get(0).getContentBlocks().get(1);
+        assertThat(restored.getMimeType()).isEqualTo("image/png");
+        assertThat(restored.getUrl()).isEqualTo(image.getUrl());
+    }
+
+    /**
+     * 验证内存图片导出恢复副本，并拒绝不受支持的 MIME 和超大媒体。
+     */
+    @Test
+    void boundsAndRestoresInlineMedia() {
+        /** 有界内存图片。 */
+        MediaContentBlock image = new MediaContentBlock(MediaContentBlock.Kind.IMAGE, "image/png", "inline.png",
+                null, new byte[]{1, 2, 3});
+        /** 完整一轮消息。 */
+        List<Message> exchange = List.of(new Message("u", Role.USER,
+                        List.of(new TextContentBlock("看图"), image), List.of(), List.of(), Map.of()),
+                text("a", Role.ASSISTANT, "好"));
+        /** 会话编解码器。 */
+        SessionExportCodec codec = new SessionExportCodec();
+        /** 版本化会话 JSON。 */
+        String json = codec.encode("s", "owner", "app", "assistant", ModelOptions.empty(),
+                new SessionSnapshot(1, exchange));
+        /** 恢复的内存图片。 */
+        MediaContentBlock restored = (MediaContentBlock) codec.decode(json).getMessages().get(0)
+                .getContentBlocks().get(1);
+        assertThat(restored.getBytes()).containsExactly(1, 2, 3);
+        assertThatThrownBy(() -> new MediaContentBlock(MediaContentBlock.Kind.IMAGE,
+                "video/mp4", "bad", null, new byte[]{1})).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new MediaContentBlock(MediaContentBlock.Kind.IMAGE,
+                "image/png", "large", null, new byte[MediaContentBlock.MAX_BYTES + 1]))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
     /**
      * 验证两位所有者及两会话的历史和选项互不泄露，并可恢复继续。
      */

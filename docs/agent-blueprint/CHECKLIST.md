@@ -21,11 +21,11 @@
 | F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | `SessionExportCodec` 导出可选 `memorySummary` 和完整原始历史；导入校验覆盖位置在交换边界并绑定当前可信定义与策略；`ContextMemoryTest.compressesRoundsAndRestoresSummary` 验证 |
 | F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | `orchestration/Plan`、`PlanRunner`、`CreatePlanTool` 与 `DefaultAgentRun`；`PlanExecutionTest` 验证步骤依赖、STOP/CONTINUE、递归拒绝、共享预算和父取消；`CodegenCommandLoopTest.planCarriesCompileFailureIntoCorrectionStep` 验证真实编译失败与修正，完整 81/81 测试通过 |
 | F13 | 子 Agent 定义、独立会话、结果回传 | executeSubAgentTool、CreateSubAgentTool | ai-agent，S14 | `CreateSubAgentTool`、`SubAgentRunner`、`DefaultAgentRun.startSubAgent`；`SubAgentExecutionTest` 验证独立历史、父工具子集、深度、失败、取消及预算；`CodegenServiceTest.delegatesReadOnlyCodeReviewToSubAgent` 验证实际只读文件审查；完整 89/89 通过 |
-| F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | S09 会话级 `ModelOptions` 与 `AgentRequest` 单次选项逐层覆盖；两会话及导入后覆盖由 `AgentSessionServiceTest` 验证；跨协议待 S16 |
-| F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai-framework，S07/S16 | S07 可传 `reasoning_effort`，解析 `reasoning_content` 增量并保留助手历史元数据；供应商特有 signature 与能力差异待 S16 |
+| F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | `ModelOptions` 逐层覆盖温度、输出上限、推理强度与开关；`RoutedModelGateway` 按 modelId 跨协议路由；`MultiProtocolGatewayTest` 与 `OpenAiChatGatewayTest` 验证调用隔离，真实供应商待验证 |
+| F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai-framework，S07/S16 | Chat 保存/可选回传 `reasoning_content`；Responses 保存加密推理项；Anthropic 保存 `thinking`/签名，旧无签名历史仅显式开启回传；Qwen 推理开关显式配置并有 fixture，见 notes/S16.md |
 | F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | S07 解析 usage 尾块，发 `UsageReported`/Agent USAGE；S14 `DefaultAgentRun` 用 `runId:model:turnNumber` 作为 modelCallId，按调用标识去重汇总父子已完成回合；`SubAgentExecutionTest.delegatesReadOnlyReviewAndKeepsHistoriesSeparate` 验证父最终用量含子级且不双算；S21 指标待完成 |
 | F17 | 可开关的请求与 SSE 调试信息 | LLMRequestDebugLogger | ai-framework，S07/S21 | 待完成 |
-| F18 | 环境上下文提示、附件与多模态消息 | buildSystemContext、MessageAttachment 等 | agent/ai-framework/codegen，S10/S16 | 待完成 |
+| F18 | 环境上下文提示、附件与多模态消息 | buildSystemContext、MessageAttachment 等 | agent/ai-framework/codegen，S10/S16 | `AgentRequest`、`MediaContentBlock`、`SessionExportCodec` 支持有界图片附件；三协议图片能力与不支持类型拒绝见 notes/S16.md；环境上下文由可信系统提示词/配置模板提供，音频/视频/文档聊天尚未支持 |
 
 “保留”指能力与有效行为，不要求兼容 Agent4J 所有类名、错误行为或 JSON 私有实现。若对参考导出 JSON 提供导入支持，必须专门列格式版本与迁移测试；第一版默认只保证新系统自身的导出/导入，不冒称兼容旧格式。
 
@@ -53,14 +53,14 @@
 | 协议/能力 | 验收要求 | 阶段 | 实现与证据 |
 |---|---|---|---|
 | OpenAI Chat 及兼容供应商 | 单次请求、SSE、tool calls、usage、取消、结束原因 | ai-framework，S07/S08 | S07 本地 HTTP fixture 验证单次请求、SSE、多 index 分片、usage 尾块、结束原因、401/429/500 与断流；真实供应商及S08 已验证取消后后续工具不启动及工具上下文协作取消/独立冒烟 |
-| OpenAI Responses | 独立请求/事件/工具结果映射；与统一模型契约一致 | ai-framework，S16 | 待完成 |
-| Anthropic Messages | system、content blocks、tool_use/result、reasoning 元数据和完成事件 | ai-framework，S16 | 待完成 |
-| MiMo/Qwen 等参考兼容处理 | 实际字段与历史处理有 fixture，不依赖供应商名猜测全部能力 | ai-framework，S16 | 待完成 |
-| 附件和多模态聊天 | 根据参考实现列出具体媒体/协议支持表；不支持的组合显式拒绝 | ai-framework，S16 | 待完成 |
-| OpenAI Embedding | 批量文本、维度、索引、向量和 usage | ai-framework，S17 | 待完成 |
-| DashScope 多模态 Embedding | 文本、图片、视频、融合、维度与向量类型 | ai-framework，S17 | 待完成 |
-| 多模型配置/切换 | 通过 modelId 查找，请求参数隔离；不修改 singleton 来模拟会话选项 | ai-framework，S07/S16 | S07 `OpenAiChatGateway` 不可变注册表与应用配置绑定；本地两 modelId 及调用选项隔离已验证，跨协议路由待 S16 |
-| 自定义模型协议扩展 | 增加适配器及注册即通过契约，不改 Agent 循环 | ai-framework，S16/S22 | 待完成 |
+| OpenAI Responses | 独立请求/事件/工具结果映射；与统一模型契约一致 | ai-framework，S16 | `MultiProtocolGateway` 的 Responses 编码/聚合；`MultiProtocolGatewayTest.responsesToolLoopAndImage` 本地 fixture 验证工具、推理、usage、图片、续问 |
+| Anthropic Messages | system、content blocks、tool_use/result、reasoning 元数据和完成事件 | ai-framework，S16 | `MultiProtocolGateway` 的 Anthropic 编码/聚合；`MultiProtocolGatewayTest.anthropicToolLoopAndSignature` 验证系统、工具、推理签名、用量、结束 |
+| MiMo/Qwen 等参考兼容处理 | 实际字段与历史处理有 fixture，不依赖供应商名猜测全部能力 | ai-framework，S16 | 模型实例显式启用无签名推理历史、Chat `reasoning_content` 回传和 Qwen 推理开关；对应 `MultiProtocolGatewayTest`、`OpenAiChatGatewayTest` fixture |
+| 附件和多模态聊天 | 根据参考实现列出具体媒体/协议支持表；不支持的组合显式拒绝 | ai-framework，S16 | `MediaContentBlock` 与各协议本地能力检查；图片来源/MIME 矩阵与不支持组合见 notes/S16.md；音频/视频/文档聊天未实现 |
+| OpenAI Embedding | 批量文本、维度、索引、向量和 usage | ai-framework，S17 | `HttpEmbeddingGateway`；`HttpEmbeddingGatewayTest.openAiBatchIndexesAndUsage` 验证 |
+| DashScope 多模态 Embedding | 文本、图片、视频、融合、维度与向量类型 | ai-framework，S17 | `HttpEmbeddingGateway`；`HttpEmbeddingGatewayTest.dashScopeFusionAndMediaSources` 验证 URL、data URI、内存媒体与融合 |
+| 多模型配置/切换 | 通过 modelId 查找，请求参数隔离；不修改 singleton 来模拟会话选项 | ai-framework，S07/S16 | `OpenAiChatConfiguration` 按 modelId 组合 Chat/Responses/Anthropic；`EmbeddingConfiguration` 独立注册向量模型；fixture 验证调用隔离 |
+| 自定义模型协议扩展 | 增加适配器及注册即通过契约，不改 Agent 循环 | ai-framework，S16/S22 | `RoutedModelGateway` 注册任意 `ModelGateway` 实现即可复用 Agent 循环；外部自定义适配器的端到端契约测试留待 S22 |
 
 离线协议验证、真实供应商验证、平台执行验证分开记录。某平台/供应商没有环境可测，应保留未验证标记，不把缺凭据解释为接口已验证可用。
 

@@ -9,6 +9,7 @@ import com.dingbang.myworld.aiframework.model.ToolResult;
 import com.dingbang.myworld.aiframework.model.ToolResultStatus;
 import com.dingbang.myworld.aiframework.model.content.ContentBlock;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
+import com.dingbang.myworld.aiframework.model.content.MediaContentBlock;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,9 +17,11 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.net.URI;
 
 /**
  * 将原始文本、工具消息和可选摘要编码为有版本、无运行对象的会话 JSON。
@@ -64,6 +67,7 @@ public final class SessionExportCodec {
         if (options.getTemperature() != null) optionsNode.put("temperature", options.getTemperature());
         if (options.getMaxCompletionTokens() != null) optionsNode.put("maxCompletionTokens", options.getMaxCompletionTokens());
         if (options.getReasoningEffort() != null) optionsNode.put("reasoningEffort", options.getReasoningEffort());
+        if (options.getThinkingEnabled() != null) optionsNode.put("thinkingEnabled", options.getThinkingEnabled());
         /** 完整消息数组。 */
         ArrayNode messages = root.putArray("messages");
         /** 当前待导出的历史消息。 */
@@ -76,10 +80,24 @@ public final class SessionExportCodec {
             ArrayNode texts = node.putArray("texts");
             /** 当前消息的内容块。 */
             for (ContentBlock block : message.getContentBlocks()) {
-                if (!(block instanceof TextContentBlock text)) {
-                    throw new IllegalArgumentException("当前导出格式只支持文本内容块");
+                if (block instanceof TextContentBlock text) texts.add(text.getText());
+                else if (!(block instanceof MediaContentBlock)) throw new IllegalArgumentException("未知内容块无法导出");
+            }
+            if (message.getContentBlocks().stream().anyMatch(MediaContentBlock.class::isInstance)) {
+                /** 保持混合内容块原有顺序的扩展数组。 */
+                ArrayNode contentNodes = node.putArray("contentBlocks");
+                for (ContentBlock block : message.getContentBlocks()) {
+                    /** 单个内容块记录。 */
+                    ObjectNode contentNode = contentNodes.addObject();
+                    if (block instanceof TextContentBlock text) {
+                        contentNode.put("type", "text").put("text", text.getText());
+                    } else if (block instanceof MediaContentBlock media) {
+                        contentNode.put("type", "media").put("kind", media.getKind().name())
+                                .put("mimeType", media.getMimeType()).put("name", media.getName());
+                        if (media.getUrl() != null) contentNode.put("url", media.getUrl().toString());
+                        else contentNode.put("base64", Base64.getEncoder().encodeToString(media.getBytes()));
+                    }
                 }
-                texts.add(text.getText());
             }
             /** 工具调用数组。 */
             ArrayNode calls = node.putArray("toolCalls");
@@ -107,7 +125,7 @@ public final class SessionExportCodec {
             ObjectNode metadata = node.putObject("providerMetadata");
             /** 当前协议元数据条目。 */
             for (Map.Entry<String, String> entry : message.getProviderMetadata().entrySet()) {
-                if (!"reasoning_content".equals(entry.getKey()) && !"completion_id".equals(entry.getKey())) {
+                if (!allowedMetadata(entry.getKey())) {
                     throw new IllegalArgumentException("导出格式不支持的协议元数据");
                 }
                 metadata.put(entry.getKey(), entry.getValue());
@@ -137,7 +155,8 @@ public final class SessionExportCodec {
             ModelOptions options = new ModelOptions(
                     optionsNode.has("temperature") ? requiredDouble(optionsNode, "temperature") : null,
                     optionsNode.has("maxCompletionTokens") ? requiredInteger(optionsNode, "maxCompletionTokens") : null,
-                    optionsNode.has("reasoningEffort") ? requiredText(optionsNode, "reasoningEffort") : null);
+                    optionsNode.has("reasoningEffort") ? requiredText(optionsNode, "reasoningEffort") : null,
+                    optionsNode.has("thinkingEnabled") ? requiredBoolean(optionsNode, "thinkingEnabled") : null);
             /** 导入的历史节点。 */
             JsonNode messageNodes = root.path("messages");
             if (!messageNodes.isArray()) throw new IllegalArgumentException("缺少消息数组");
@@ -147,10 +166,35 @@ public final class SessionExportCodec {
             for (JsonNode node : messageNodes) {
                 /** 文本内容块。 */
                 List<ContentBlock> blocks = new ArrayList<>();
-                /** 当前文本节点。 */
-                for (JsonNode text : requiredArray(node, "texts")) {
-                    if (!text.isTextual()) throw new IllegalArgumentException("文本块类型无效");
-                    blocks.add(new TextContentBlock(text.asText()));
+                if (node.path("contentBlocks").isArray()) {
+                    /** 当前扩展内容块。 */
+                    for (JsonNode contentNode : node.path("contentBlocks")) {
+                        if ("text".equals(requiredText(contentNode, "type"))) {
+                            blocks.add(new TextContentBlock(requiredText(contentNode, "text")));
+                        } else if ("media".equals(requiredText(contentNode, "type"))) {
+                            /** 媒体类型。 */
+                            MediaContentBlock.Kind kind = MediaContentBlock.Kind.valueOf(requiredText(contentNode, "kind"));
+                            /** 可选 HTTPS 来源。 */
+                            URI url = contentNode.path("url").isTextual()
+                                    ? URI.create(requiredText(contentNode, "url")) : null;
+                            /** 可选内存内容。 */
+                            if (contentNode.path("base64").isTextual()
+                                    && contentNode.path("base64").asText().length()
+                                    > MediaContentBlock.MAX_BYTES * 4L / 3L + 8) {
+                                throw new IllegalArgumentException("附件数据超出大小上限");
+                            }
+                            byte[] bytes = contentNode.path("base64").isTextual()
+                                    ? Base64.getDecoder().decode(requiredText(contentNode, "base64")) : null;
+                            blocks.add(new MediaContentBlock(kind, requiredText(contentNode, "mimeType"),
+                                    requiredText(contentNode, "name"), url, bytes));
+                        } else throw new IllegalArgumentException("未知内容块类型");
+                    }
+                } else {
+                    /** 旧会话中的文本节点。 */
+                    for (JsonNode text : requiredArray(node, "texts")) {
+                        if (!text.isTextual()) throw new IllegalArgumentException("文本块类型无效");
+                        blocks.add(new TextContentBlock(text.asText()));
+                    }
                 }
                 /** 工具调用。 */
                 List<ToolCall> calls = new ArrayList<>();
@@ -174,7 +218,7 @@ public final class SessionExportCodec {
                 JsonNode metadataNode = node.path("providerMetadata");
                 if (!metadataNode.isObject()) throw new IllegalArgumentException("缺少协议元数据对象");
                 metadataNode.fields().forEachRemaining(entry -> {
-                    if (!"reasoning_content".equals(entry.getKey()) && !"completion_id".equals(entry.getKey())) {
+                    if (!allowedMetadata(entry.getKey())) {
                         throw new IllegalArgumentException("不允许导入的协议元数据");
                     }
                     if (!entry.getValue().isTextual()) throw new IllegalArgumentException("协议元数据类型无效");
@@ -309,6 +353,18 @@ public final class SessionExportCodec {
         JsonNode value = node.path(name);
         if (!value.isArray()) throw new IllegalArgumentException("缺少数组: " + name);
         return value;
+    }
+
+    /**
+     * 限制可导出和导入的协议历史元数据。
+     *
+     * @param key 元数据键
+     * @return 是否是已知历史字段
+     */
+    private static boolean allowedMetadata(String key) {
+        return "reasoning_content".equals(key) || "completion_id".equals(key)
+                || "thinking".equals(key) || "thinking_signature".equals(key)
+                || "reasoning_item_json".equals(key);
     }
 
 }

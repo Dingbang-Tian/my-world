@@ -64,6 +64,19 @@ public final class OpenAiChatProperties {
      */
     public static final class ModelProperties {
 
+        /** 模型使用的聊天协议，默认 chat。 */
+        private String protocol = "chat";
+        /** 是否支持图片输入。 */
+        private boolean imageEnabled;
+        /** 是否支持推理选项。 */
+        private boolean reasoningEnabled;
+        /** 是否回传无签名的旧推理历史。 */
+        private boolean forwardUnsignedThinking;
+        /** 是否使用 Qwen 兼容推理开关。 */
+        private boolean thinkingSwitchEnabled;
+        /** 模型默认推理开关。 */
+        private Boolean thinkingEnabled;
+
         /** 供应商标识。 */
         private String providerId;
         /** Chat Completions 完整接口地址。 */
@@ -80,6 +93,35 @@ public final class OpenAiChatProperties {
         private String reasoningEffort;
         /** 是否为兼容供应商回传推理历史。 */
         private boolean forwardReasoningContent;
+
+        /** @return 聊天协议名称 */
+        public String getProtocol() { return protocol; }
+        /** @param protocol 聊天协议名称 */
+        public void setProtocol(String protocol) { this.protocol = protocol; }
+        /** @return 是否支持图片 */
+        public boolean isImageEnabled() { return imageEnabled; }
+        /** @param imageEnabled 是否支持图片 */
+        public void setImageEnabled(boolean imageEnabled) { this.imageEnabled = imageEnabled; }
+        /** @return 是否支持推理选项 */
+        public boolean isReasoningEnabled() { return reasoningEnabled; }
+        /** @param reasoningEnabled 是否支持推理选项 */
+        public void setReasoningEnabled(boolean reasoningEnabled) { this.reasoningEnabled = reasoningEnabled; }
+        /** @return 是否回传无签名的推理历史 */
+        public boolean isForwardUnsignedThinking() { return forwardUnsignedThinking; }
+        /** @param forwardUnsignedThinking 是否回传无签名的推理历史 */
+        public void setForwardUnsignedThinking(boolean forwardUnsignedThinking) {
+            this.forwardUnsignedThinking = forwardUnsignedThinking;
+        }
+        /** @return 是否允许 Qwen 推理开关 */
+        public boolean isThinkingSwitchEnabled() { return thinkingSwitchEnabled; }
+        /** @param thinkingSwitchEnabled 是否允许 Qwen 推理开关 */
+        public void setThinkingSwitchEnabled(boolean thinkingSwitchEnabled) {
+            this.thinkingSwitchEnabled = thinkingSwitchEnabled;
+        }
+        /** @return 默认推理开关 */
+        public Boolean getThinkingEnabled() { return thinkingEnabled; }
+        /** @param thinkingEnabled 默认推理开关 */
+        public void setThinkingEnabled(Boolean thinkingEnabled) { this.thinkingEnabled = thinkingEnabled; }
 
         /**
          * 返回供应商标识。

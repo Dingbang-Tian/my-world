@@ -8,6 +8,7 @@ import com.dingbang.myworld.aiframework.model.ToolCall;
 import com.dingbang.myworld.aiframework.model.ToolResult;
 import com.dingbang.myworld.aiframework.model.content.ContentBlock;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
+import com.dingbang.myworld.aiframework.model.content.MediaContentBlock;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -50,7 +51,7 @@ public final class ContextAssembler {
     }
 
     /**
-     * 估算消息和工具定义的 token 数；按 UTF-8 字节逐个计入以留出保守余量。
+     * 估算消息和工具定义的 token 数；文本按 UTF-8 字节，附件按来源与大小保守计入。
      *
      * @param messages 模型消息
      * @param tools 模型可见的工具定义
@@ -64,10 +65,15 @@ public final class ContextAssembler {
             total += MESSAGE_OVERHEAD + bytes(message.getRole().name());
             /** 当前消息的文本内容块。 */
             for (ContentBlock block : message.getContentBlocks()) {
-                if (!(block instanceof TextContentBlock text)) {
-                    throw new IllegalArgumentException("当前上下文估算不支持非文本内容块");
+                if (block instanceof TextContentBlock text) {
+                    total += bytes(text.getText());
+                } else if (block instanceof MediaContentBlock media) {
+                    total += MESSAGE_OVERHEAD + bytes(media.getMimeType()) + bytes(media.getName())
+                            + (media.getBytes() == null ? bytes(media.getUrl().toString()) + 1024
+                            : (long) media.getBytes().length * 2L);
+                } else {
+                    throw new IllegalArgumentException("上下文包含未知内容块");
                 }
-                total += bytes(text.getText());
             }
             /** 当前助手发出的工具调用。 */
             for (ToolCall call : message.getToolCalls()) {

@@ -17,6 +17,7 @@ import com.dingbang.myworld.aiframework.model.ToolCall;
 import com.dingbang.myworld.aiframework.model.ToolResult;
 import com.dingbang.myworld.aiframework.model.ToolResultStatus;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
+import com.dingbang.myworld.aiframework.model.content.MediaContentBlock;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpServer;
@@ -41,6 +42,47 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 2026/10/03
  */
 class OpenAiChatGatewayTest {
+
+    /**
+     * 验证显式 Qwen 开关和图片能力按单次调用编码。
+     *
+     * @throws Exception 本地 fixture 失败时
+     */
+    @Test
+    void explicitThinkingSwitchAndImageDoNotLeakAcrossCalls() throws Exception {
+        /** 已接收的请求体。 */
+        List<JsonNode> requests = new ArrayList<>();
+        /** 本地 fixture 服务。 */
+        HttpServer server = server();
+        server.createContext("/v1/chat/completions", exchange -> {
+            requests.add(mapper.readTree(exchange.getRequestBody().readAllBytes()));
+            respond(exchange, 200, "data: {\"id\":\"c\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"好\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n");
+        });
+        server.start();
+        try {
+            /** 显式启用兼容能力的模型实例。 */
+            OpenAiChatGateway gateway = new OpenAiChatGateway(List.of(new OpenAiChatModelConfig("local", "qwen",
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v1/chat/completions"),
+                    "wire-model", "test-only-key", ModelOptions.empty(), true, true, true)));
+            /** 带图片的用户输入。 */
+            Message image = new Message("u", Role.USER, List.of(new TextContentBlock("看图"),
+                    new MediaContentBlock(MediaContentBlock.Kind.IMAGE, "image/png", "x.png", null,
+                            new byte[]{1, 2})), List.of(), List.of(), Map.of());
+            /** 首轮记录。 */
+            Recorder first = new Recorder();
+            gateway.generate(new ModelRequest("local", List.of(image), List.of(),
+                    new ModelOptions(null, null, null, false)), first);
+            assertThat(first.error).isNull();
+            assertThat(requests.get(0).path("chat_template_kwargs").path("enable_thinking").asBoolean()).isFalse();
+            assertThat(requests.get(0).path("messages").get(0).path("content").get(1)
+                    .path("image_url").path("url").asText()).startsWith("data:image/png;base64,");
+            /** 第二轮记录。 */
+            Recorder second = new Recorder();
+            gateway.generate(new ModelRequest("local", List.of(textMessage("u2", Role.USER, "你好"))), second);
+            assertThat(second.error).isNull();
+            assertThat(requests.get(1).has("chat_template_kwargs")).isFalse();
+        } finally { server.stop(0); }
+    }
 
     /** JSON 测试解析器。 */
     private final ObjectMapper mapper = new ObjectMapper();

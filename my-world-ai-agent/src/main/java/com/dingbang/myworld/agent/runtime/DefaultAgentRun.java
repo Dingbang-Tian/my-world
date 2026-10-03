@@ -315,7 +315,7 @@ final class DefaultAgentRun implements AgentRun {
         }
         try {
             /** 当前用户的完整消息。 */
-            Message user = textMessage(runId + ":user", Role.USER, request.getUserText());
+            Message user = userMessage(runId + ":user", request);
             synchronized (stateLock) {
                 /** 历史和版本的同一快照。 */
                 SessionSnapshot snapshot = session.snapshot();
@@ -1466,6 +1466,22 @@ final class DefaultAgentRun implements AgentRun {
     private static Message textMessage(String messageId, Role role, String text) {
         return new Message(messageId, role, Collections.singletonList(new TextContentBlock(text)),
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
+    }
+
+    /**
+     * 将文本和附件按输入顺序构建为本轮用户消息。
+     *
+     * @param messageId 消息标识
+     * @param request 本轮用户请求
+     * @return 含附件的协议中立消息
+     */
+    private static Message userMessage(String messageId, AgentRequest request) {
+        /** 本轮用户内容块。 */
+        List<ContentBlock> blocks = new ArrayList<>();
+        blocks.add(new TextContentBlock(request.getUserText()));
+        blocks.addAll(request.getAttachments());
+        return new Message(messageId, Role.USER, blocks, Collections.emptyList(),
+                Collections.emptyList(), Collections.emptyMap());
     }
 
     /**

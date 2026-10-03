@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/03（S15 上下文与摘要已完成本地验证，等待学习复述）。
+最后更新：2026/10/03（S16 多协议与附件、S17 Embedding 已完成本地验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S16；S15、S14 及此前阶段的待回答问题仍保留。
-- 当前阶段已实现内容：S15 的可信上下文策略、保守输入估算、轮次和 Token 阈值、无工具分块摘要、原子覆盖位置、摘要回注与压缩事件、摘要用量和导出恢复；原始历史仍完整保存。
+- 下一阶段：S18；S16、S17 及此前阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S16 的 Responses/Anthropic 单轮适配、推理历史和附件能力检查；S17 独立 OpenAI/DashScope 向量网关。具体支持矩阵见 notes/S16.md 与 notes/S17.md。
 - 当前验证边界：默认 JDK 8 无法构建 Java 21 项目；普通沙箱禁止本地端口绑定和 Java 枚举进程树。完整测试已在允许本地 HTTP fixture 的本机执行环境通过；未调用真实供应商。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S15.md](notes/S15.md)。JDK 21 下完整 `mvn -q test` 95/95 通过、无失败/错误/跳过；S15 测试 6/6 通过。未调用真实供应商。
+- 本次交付与证据：见 [notes/S16.md](notes/S16.md)、[notes/S17.md](notes/S17.md)。JDK 21 下完整 `mvn -q test` 107/107 通过、无失败/错误/跳过；使用本地 HTTP fixture，未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -34,8 +34,8 @@
 | S13 | 计划 | 已验证 | 待回答 | [notes/S13.md](notes/S13.md) |
 | S14 | 子 Agent | 已验证 | 待回答 | [notes/S14.md](notes/S14.md) |
 | S15 | 摘要与上下文 | 已验证 | 待回答 | [notes/S15.md](notes/S15.md) |
-| S16 | 多协议与多模态 | 未开始 | 未开始 | — |
-| S17 | Embedding | 未开始 | 未开始 | — |
+| S16 | 多协议与多模态 | 已验证 | 待回答 | [notes/S16.md](notes/S16.md) |
+| S17 | Embedding | 已验证 | 待回答 | [notes/S17.md](notes/S17.md) |
 | S18 | 数据库存储 | 未开始 | 未开始 | — |
 | S19 | 检查点恢复 | 未开始 | 未开始 | — |
 | S20 | SDK 消费与入口 | 未开始 | 未开始 | — |
@@ -82,6 +82,8 @@
 | 2026/10/03 | S13 在唯一 Agent 运行时内执行顺序计划；步骤模型共用父取消、时限、回合、工具和输出预算；codegen 按配置显式开启计划 | `PlanExecutionTest`、`CodegenServiceTest` 与 `CodegenCommandLoopTest` 验证依赖、失败策略、递归限制、预算、取消和真实 javac 纠错；完整 81/81 通过 | S13/S14 | 已验证 |
 | 2026/10/03 | S14 子 Agent 复用唯一 runtime，独立会话与运行标识；父级明确传上下文和已授权工具子集，顺序异步等待，传播取消并收紧剩余预算与深度 | `SubAgentExecutionTest` 覆盖历史隔离、权限、嵌套、预算、失败、取消及单线程执行器；`CodegenServiceTest` 使用真实只读文件工具审查产物；完整 89/89 通过 | S14/S18/S21 | 已验证 |
 | 2026/10/03 | S15 在可信定义中配置上下文窗口；仅摘要完整历史交换，分块调用无工具模型，成功后原子更新摘要覆盖位置，原始历史永久保留；摘要与普通调用共用预算 | `ContextMemoryTest` 覆盖轮次/Token 阈值、工具交换、分块、防重复、失败、超长、超窗、事件、用量、导出恢复；完整回归见 notes/S15.md | S15/S16/S18 | 已验证 |
+| 2026/10/03 | S16 保留旧 Chat 网关，按本地 modelId 组合 Responses/Anthropic；推理和图片能力由实例显式声明，旧无签名历史由配置决定是否回传 | 两协议本地 SSE fixture、Qwen 开关、MiMo 历史、Agent 附件会话与取消/断连测试，见 notes/S16.md | S16/S18/S22 | 已验证 |
+| 2026/10/03 | S17 使用独立 EmbeddingGateway，OpenAI 仅文本批量，DashScope 原生协议负责图片/视频与融合 | 本地 HTTP fixture 验证向量索引、维度、用量、URL/data URI/内存媒体和错误边界，见 notes/S17.md | S17/S22 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -336,6 +338,40 @@
 待用户回答的问题：见 notes/S15.md；此前阶段待回答内容仍保留
 下一会话最先读取的文件：本 PROGRESS.md、notes/S15.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S16
 下一步具体动作：按 S16 实现 Responses、Anthropic、reasoning 与附件
+```
+
+## 12H. S16 阶段交接
+
+```text
+阶段：S16 Responses、Anthropic、reasoning 与附件
+目标与已跑通流程：同一 ModelRequest → 协议单轮编码/SSE → TextDelta/ReasoningDelta/UsageReported/TurnCompleted → Agent 工具续问；图片从 AgentRequest 进入用户消息和会话历史
+已改文件（路径/核心方法）：ai-framework/protocol/MultiProtocolGateway、MultiProtocolModelConfig、RoutedModelGateway、model/content/MediaContentBlock；ai-app/config/model/OpenAiChatConfiguration 与属性；agent/api/AgentRequest、runtime/DefaultAgentRun、session/SessionExportCodec、memory/ContextAssembler
+新增依赖或配置：无 Maven 依赖；my-world.ai.chat.models.<id>.protocol=chat|responses|anthropic，并显式配置 image-enabled、reasoning-enabled、forward-unsigned-thinking、thinking-switch-enabled 等能力
+验证命令、结果和环境：JDK 21 下完整 mvn -q test 107/107 通过；本地 HTTP fixture 在允许 127.0.0.1 绑定的本机环境运行；无真实供应商凭据调用
+对照 CHECKLIST 的条目及证据：F14/F15/F18 和模型能力表；详见 notes/S16.md
+来源实现与新实现的差异：参考三协议模型分别维护更多客户端状态；新实现共享 ModelGateway 单轮契约及 Agent 循环，使用显式能力配置和不可变实例注册表
+未完成工作／真实阻塞：音频/视频/文档聊天与外部附件存储未实现，真实供应商兼容性未验证；当前不影响 S17/S18
+本阶段用户已理解的内容：待回答；工程测试不等于学习掌握
+待用户回答的问题：见 notes/S16.md
+下一会话最先读取的文件：本 PROGRESS.md、notes/S16.md、notes/S17.md、ARCHITECTURE.md、CHECKLIST.md
+下一步具体动作：S17 已连续完成，按 S18 实现数据库会话和执行记录
+```
+
+## 12I. S17 阶段交接
+
+```text
+阶段：S17 Embedding 能力保留
+目标与已跑通流程：EmbeddingRequest → 独立 EmbeddingGateway → OpenAI 文本或 DashScope 多模态 HTTP → EmbeddingResult 的索引、向量、类型、维度和用量
+已改文件（路径/核心方法）：ai-framework/embedding/EmbeddingInput、EmbeddingRequest、EmbeddingVector、EmbeddingResult、EmbeddingGateway、EmbeddingModelConfig、HttpEmbeddingGateway；ai-app/config/model/EmbeddingConfiguration 与属性
+新增依赖或配置：无 Maven 依赖；my-world.ai.embedding.enabled=true 与 models.<id>.protocol/endpoint/model/api-key/dimensions/fusion-supported/fusion-parameter-required
+验证命令、结果和环境：JDK 21 下完整 mvn -q test 107/107 通过；本地 HTTP fixture，无真实供应商请求
+对照 CHECKLIST 的条目及证据：OpenAI/DashScope Embedding 两行，详见 notes/S17.md
+来源实现与新实现的差异：新接口与聊天模型分离；输入和结果不可变；能力、索引和维度在边界校验，不引入 RAG 虚假承诺
+未完成工作／真实阻塞：未接向量库、检索和真实供应商冒烟；无 S18 实施阻塞
+本阶段用户已理解的内容：待回答；工程测试不等于学习掌握
+待用户回答的问题：见 notes/S17.md
+下一会话最先读取的文件：本 PROGRESS.md、notes/S17.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S18
+下一步具体动作：按 S18 实现 JDBC/H2 会话、运行事件与摘要持久化
 ```
 
 ## 13. 后续阶段交接模板

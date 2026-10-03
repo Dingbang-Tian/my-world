@@ -2,7 +2,11 @@ package com.dingbang.myworld.agent.api;
 
 import com.dingbang.myworld.common.utils.lang.StringUtils;
 import com.dingbang.myworld.aiframework.api.ModelOptions;
+import com.dingbang.myworld.aiframework.model.content.MediaContentBlock;
 import lombok.Data;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * 一次 Agent 用户输入及其应用和会话归属。
@@ -44,6 +48,9 @@ public final class AgentRequest {
     /** 本次调用的模型选项覆盖值。 */
     private final ModelOptions modelOptions;
 
+    /** 本次用户输入的附件快照。 */
+    private final List<MediaContentBlock> attachments;
+
     /**
      * 校验请求的必填字段；兼容入口将 appId 作为 ownerId，服务多用户时应使用显式所有者构造器。
      *
@@ -72,6 +79,24 @@ public final class AgentRequest {
      */
     public AgentRequest(String ownerId, String appId, String agentId, String sessionId,
                         String requestId, String userText, ModelOptions modelOptions) {
+        this(ownerId, appId, agentId, sessionId, requestId, userText, modelOptions, List.of());
+    }
+
+    /**
+     * 用可信所有者、调用选项和有界附件创建请求。
+     *
+     * @param ownerId 可信所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param sessionId 既有会话标识
+     * @param requestId 本次请求标识
+     * @param userText 用户输入文本
+     * @param modelOptions 单次模型选项
+     * @param attachments 本次用户消息的附件
+     */
+    public AgentRequest(String ownerId, String appId, String agentId, String sessionId,
+                        String requestId, String userText, ModelOptions modelOptions,
+                        List<MediaContentBlock> attachments) {
         if (StringUtils.isBlank(appId) || StringUtils.isBlank(agentId)
                 || StringUtils.isBlank(ownerId)
                 || StringUtils.isBlank(requestId) || StringUtils.isBlank(userText)
@@ -84,6 +109,7 @@ public final class AgentRequest {
         this.sessionId = sessionId;
         this.requestId = requestId;
         this.userText = userText;
-        this.modelOptions = java.util.Objects.requireNonNull(modelOptions, "模型选项不能为 null");
+        this.modelOptions = Objects.requireNonNull(modelOptions, "模型选项不能为 null");
+        this.attachments = List.copyOf(Objects.requireNonNull(attachments, "附件不能为 null"));
     }
 }

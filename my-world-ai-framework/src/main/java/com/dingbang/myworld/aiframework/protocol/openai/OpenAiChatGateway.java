@@ -21,6 +21,7 @@ import com.dingbang.myworld.aiframework.model.ToolCall;
 import com.dingbang.myworld.aiframework.model.ToolResult;
 import com.dingbang.myworld.aiframework.model.content.ContentBlock;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
+import com.dingbang.myworld.aiframework.model.content.MediaContentBlock;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -37,6 +38,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -206,8 +208,14 @@ public final class OpenAiChatGateway implements ModelGateway {
         if (options.getMaxCompletionTokens() != null) {
             body.put("max_completion_tokens", options.getMaxCompletionTokens());
         }
-        if (options.getReasoningEffort() != null) {
+        if (options.getReasoningEffort() != null && !Boolean.FALSE.equals(options.getThinkingEnabled())) {
             body.put("reasoning_effort", options.getReasoningEffort());
+        }
+        if (options.getThinkingEnabled() != null) {
+            if (!config.isThinkingSwitchEnabled()) {
+                throw new ModelGatewayException("UNSUPPORTED_CAPABILITY", "该 Chat 模型未启用推理开关");
+            }
+            body.putObject("chat_template_kwargs").put("enable_thinking", options.getThinkingEnabled());
         }
         return body;
     }
@@ -247,16 +255,33 @@ public final class OpenAiChatGateway implements ModelGateway {
         /** 协议对话消息。 */
         ObjectNode node = target.addObject();
         node.put("role", message.getRole().name().toLowerCase(java.util.Locale.ROOT));
-        /** 合并当前只支持的文本内容块。 */
+        /** 合并纯文本内容块。 */
         StringBuilder content = new StringBuilder();
+        /** 当前消息是否包含图片。 */
+        boolean hasImage = message.getContentBlocks().stream().anyMatch(MediaContentBlock.class::isInstance);
+        /** 混合图片消息的有序内容数组。 */
+        ArrayNode contentParts = hasImage ? node.putArray("content") : null;
         /** 当前消息内容块。 */
         for (ContentBlock block : message.getContentBlocks()) {
-            if (!(block instanceof TextContentBlock)) {
-                throw new ModelGatewayException("UNSUPPORTED_CAPABILITY", "OpenAI Chat 当前仅支持文本内容块");
+            if (block instanceof TextContentBlock text) {
+                content.append(text.getText());
+                if (hasImage) contentParts.addObject().put("type", "text").put("text", text.getText());
+            } else if (block instanceof MediaContentBlock media && hasImage
+                    && config.isImageEnabled() && message.getRole() == Role.USER
+                    && media.getKind() == MediaContentBlock.Kind.IMAGE
+                    && List.of("image/jpeg", "image/png", "image/gif", "image/webp")
+                    .contains(media.getMimeType().toLowerCase())) {
+                /** 图片的 HTTPS 或 data URI。 */
+                String url = media.getUrl() == null ? "data:" + media.getMimeType() + ";base64,"
+                        + Base64.getEncoder().encodeToString(media.getBytes()) : media.getUrl().toString();
+                contentParts.addObject().put("type", "image_url").putObject("image_url").put("url", url);
+            } else {
+                throw new ModelGatewayException("UNSUPPORTED_CAPABILITY", "OpenAI Chat 不支持该角色或附件类型");
             }
-            content.append(((TextContentBlock) block).getText());
         }
-        if (content.length() > 0) {
+        if (hasImage) {
+            // 已编码为有序内容数组。
+        } else if (content.length() > 0) {
             node.put("content", content.toString());
         } else {
             node.putNull("content");
