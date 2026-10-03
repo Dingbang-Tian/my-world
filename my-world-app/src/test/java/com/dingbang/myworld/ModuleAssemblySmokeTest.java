@@ -1,6 +1,10 @@
 package com.dingbang.myworld;
 
 import com.dingbang.myworld.agent.config.AgentModuleConfiguration;
+import com.dingbang.myworld.agent.persistence.RunJournal;
+import com.dingbang.myworld.agent.persistence.mybatis.MybatisRunService;
+import com.dingbang.myworld.agent.persistence.mybatis.MybatisSessionService;
+import com.dingbang.myworld.agent.session.SessionRepository;
 import com.dingbang.myworld.ai.adapter.SpringAiChatAdapter;
 import com.dingbang.myworld.ai.application.AiChatService;
 import com.dingbang.myworld.ai.config.SpringAiConfiguration;
@@ -8,6 +12,7 @@ import com.dingbang.myworld.aiapp.config.AiApplicationConfiguration;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
 import com.dingbang.myworld.aiframework.protocol.openai.OpenAiChatGateway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -48,6 +53,31 @@ class ModuleAssemblySmokeTest {
             assertThat(context.getBean(SpringAiConfiguration.class)).isNotNull();
             assertThat(context.getBean(AiChatService.class)).isInstanceOf(SpringAiChatAdapter.class);
             assertThat(context.getBean(ModelGateway.class)).isInstanceOf(OpenAiChatGateway.class);
+        }
+    }
+
+    /**
+     * 验证启动模块在 MySQL 模式装配 MyBatis-Plus Service 和 Mapper。
+     */
+    @Test
+    @EnabledIfEnvironmentVariable(named = "MYWORLD_TEST_MYSQL_URL", matches = ".+")
+    void loadsMysqlAgentStorageWithoutDefaultDatasource() {
+        /** 使用专用 MySQL 测试库启动的应用上下文。 */
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(
+                MyWorldApplication.class, FakeModelConfiguration.class)
+                .web(WebApplicationType.NONE)
+                .profiles("test")
+                .properties("spring.config.name=s01-smoke",
+                        "my-world.agent.storage.type=mysql",
+                        "my-world.agent.storage.url=" + System.getenv("MYWORLD_TEST_MYSQL_URL"),
+                        "my-world.agent.storage.username="
+                                + System.getenv().getOrDefault("MYWORLD_TEST_MYSQL_USER", "root"),
+                        "my-world.agent.storage.password="
+                                + System.getenv().getOrDefault("MYWORLD_TEST_MYSQL_PASSWORD", ""))
+                .run();
+        try (context) {
+            assertThat(context.getBean(SessionRepository.class)).isInstanceOf(MybatisSessionService.class);
+            assertThat(context.getBean(RunJournal.class)).isInstanceOf(MybatisRunService.class);
         }
     }
 

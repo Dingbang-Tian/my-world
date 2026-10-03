@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/03（S16 多协议与附件、S17 Embedding 已完成本地验证，等待学习复述）。
+最后更新：2026/10/03（S18 已按用户要求改为 MySQL + MyBatis-Plus Service/Mapper，S19 恢复链路保持，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S18；S16、S17 及此前阶段的待回答问题仍保留。
-- 当前阶段已实现内容：S16 的 Responses/Anthropic 单轮适配、推理历史和附件能力检查；S17 独立 OpenAI/DashScope 向量网关。具体支持矩阵见 notes/S16.md 与 notes/S17.md。
+- 下一阶段：S20；S18、S19 及此前阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S18 的 MySQL/MyBatis-Plus Service 与 Mapper、Flyway 迁移、会话与运行记录；S19 的工具意图/结果检查点、启动扫描、显式恢复与不确定副作用核查。详见 notes/S18.md 与 notes/S19.md。
 - 当前验证边界：默认 JDK 8 无法构建 Java 21 项目；普通沙箱禁止本地端口绑定和 Java 枚举进程树。完整测试已在允许本地 HTTP fixture 的本机执行环境通过；未调用真实供应商。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S16.md](notes/S16.md)、[notes/S17.md](notes/S17.md)。JDK 21 下完整 `mvn -q test` 107/107 通过、无失败/错误/跳过；使用本地 HTTP fixture，未调用真实供应商。
+- 本次交付与证据：见 [notes/S18.md](notes/S18.md)、[notes/S19.md](notes/S19.md)。JDK 21 下完整 `mvn -q clean test` 116/116 通过、无失败/错误/跳过，覆盖真实 MySQL 8.0、H2 历史回归和本地模型/HTTP fixture；未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -36,8 +36,8 @@
 | S15 | 摘要与上下文 | 已验证 | 待回答 | [notes/S15.md](notes/S15.md) |
 | S16 | 多协议与多模态 | 已验证 | 待回答 | [notes/S16.md](notes/S16.md) |
 | S17 | Embedding | 已验证 | 待回答 | [notes/S17.md](notes/S17.md) |
-| S18 | 数据库存储 | 未开始 | 未开始 | — |
-| S19 | 检查点恢复 | 未开始 | 未开始 | — |
+| S18 | 数据库存储 | 已验证 | 待回答 | [notes/S18.md](notes/S18.md) |
+| S19 | 检查点恢复 | 已验证 | 待回答 | [notes/S19.md](notes/S19.md) |
 | S20 | SDK 消费与入口 | 未开始 | 未开始 | — |
 | S21 | 治理与排障 | 未开始 | 未开始 | — |
 | S22 | 完整验收 | 未开始 | 未开始 | — |
@@ -58,7 +58,7 @@
 
 用户已确认：AI 模块分离 Spring AI 与自研框架、SDK 接入、codegen 收敛在 ai-app/codegen、完整功能保留、配置提示词、后续热更新。
 
-图纸默认：单次模型适配器 + 唯一 Agent 循环；沿用现有普通对话；Java 监听器事件；本地 JDBC/H2；顺序编排；按阶段教学。它们来自工程规划，修改时记录证据即可，不把它们误称为用户逐项作出的选择。
+图纸默认：单次模型适配器 + 唯一 Agent 循环；沿用现有普通对话；Java 监听器事件；顺序编排；按阶段教学。数据库原选型为本地 JDBC/H2，用户现已明确改为 MySQL + MyBatis-Plus Service/Mapper。
 
 | 日期 | 决策/变更 | 原因与证据 | 影响阶段 | 状态 |
 |---|---|---|---|---|
@@ -84,6 +84,9 @@
 | 2026/10/03 | S15 在可信定义中配置上下文窗口；仅摘要完整历史交换，分块调用无工具模型，成功后原子更新摘要覆盖位置，原始历史永久保留；摘要与普通调用共用预算 | `ContextMemoryTest` 覆盖轮次/Token 阈值、工具交换、分块、防重复、失败、超长、超窗、事件、用量、导出恢复；完整回归见 notes/S15.md | S15/S16/S18 | 已验证 |
 | 2026/10/03 | S16 保留旧 Chat 网关，按本地 modelId 组合 Responses/Anthropic；推理和图片能力由实例显式声明，旧无签名历史由配置决定是否回传 | 两协议本地 SSE fixture、Qwen 开关、MiMo 历史、Agent 附件会话与取消/断连测试，见 notes/S16.md | S16/S18/S22 | 已验证 |
 | 2026/10/03 | S17 使用独立 EmbeddingGateway，OpenAI 仅文本批量，DashScope 原生协议负责图片/视频与融合 | 本地 HTTP fixture 验证向量索引、维度、用量、URL/data URI/内存媒体和错误边界，见 notes/S17.md | S17/S22 | 已验证 |
+| 2026/10/03 | S18 使用 Boot BOM 对应 H2 2.3.232、Flyway 11.7.2；文件库与内存仓库可配置替换；会话状态、顺序消息、摘要、运行、事件、工具、计划与产物分表 | `JdbcPersistenceRecoveryTest` 验证文件库重开、归属、租约、版本、请求键、事件和产物；全量 114/114 通过 | S18/S19 | 已验证 |
+| 2026/10/03 | S19 在工具调用前保存意图，结果后保存确定状态；启动扫描中断运行，未知副作用转 `NEEDS_REVIEW`；显式 resume 新 run 可复用确定工具结果和已完成计划步骤 | `JdbcPersistenceRecoveryTest` 验证结果落库后检查点前崩溃窗口、计划步骤边界、未知命令阻止重放、旧租约释放；全量 114/114 通过 | S19/S20 | 已验证 |
+| 2026/10/03 | 按用户要求将 S18 运行时存储改为 MySQL + MyBatis-Plus Service/Mapper；H2/JDBC 仅作为测试回归保留 | 真实 MySQL 8.0 集成测试验证迁移、跨上下文会话、请求唯一键、事件、恢复状态；启动模块 MySQL 装配测试通过 | S18/S19 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -372,6 +375,23 @@
 待用户回答的问题：见 notes/S17.md
 下一会话最先读取的文件：本 PROGRESS.md、notes/S17.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S18
 下一步具体动作：按 S18 实现 JDBC/H2 会话、运行事件与摘要持久化
+```
+
+## 12J. S18–S19 阶段交接
+
+```text
+阶段：S18 数据库会话和执行记录；S19 检查点和中断恢复
+目标与已跑通流程：正常运行保存完整历史/摘要/运行/事件 → MySQL 上下文重建继续会话；工具调用前保存意图、完成后保存结果 → 启动扫描中断运行 → 显式 resume 创建关联新 run，并复用确定工具结果或已完成计划步骤
+已改文件（路径/核心方法）：agent/persistence/mybatis 的两个 Service、两个 Mapper 与主表行模型；db/mysql/V1；RecoveryJournal、DefaultAgentRun、DefaultAgentService、AgentStorageConfiguration；CodegenService；H2/JDBC 旧实现移至测试目录；详见 notes/S18.md 和 notes/S19.md
+新增依赖或配置：MyBatis-Plus Boot 3 Starter、MySQL Connector/J、HikariCP、Flyway MySQL；my-world.agent.storage.type=memory|mysql，mysql 模式要求 jdbc:mysql: 地址和用户名
+验证命令、结果和环境：Homebrew JDK 21 下真实 MySQL 8.0 集成测试及全项目 mvn -q clean test，116/116 通过；本地脚本模型，无真实供应商
+对照 CHECKLIST 的条目及证据：F09、A09、A10；MybatisMysqlPersistenceTest、ModuleAssemblySmokeTest、JdbcPersistenceRecoveryTest
+来源实现与新实现的差异：完整历史不删除，摘要独立记录；恢复只在可解释的安全边界继续，不承诺外部副作用 exactly-once
+未完成工作／真实阻塞：正在执行的计划步骤、未知文件/命令结果、原请求含附件以及会话版本已变化时需要人工核查；多实例启动协调和旧进程接管未实现；S20 Web/SDK 消费入口待做
+本阶段用户已理解的内容：待回答；工程测试不等于学习掌握
+待用户回答的问题：见 notes/S18.md 和 notes/S19.md
+下一会话最先读取的文件：本 PROGRESS.md、notes/S18.md、notes/S19.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S20
+下一步具体动作：按 S20 增加独立 SDK 消费者与本地开发入口，复用 AgentRecoveryService 和持久化状态/事件查询
 ```
 
 ## 13. 后续阶段交接模板

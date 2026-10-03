@@ -141,6 +141,27 @@ public final class SessionExportCodec {
      * @return 已校验的数据
      */
     public ImportedSession decode(String serialized) {
+        return decode(serialized, false);
+    }
+
+    /**
+     * 解码运行检查点中尚未以最终助手消息结束的交换。
+     *
+     * @param serialized 运行检查点 JSON
+     * @return 可用于恢复的消息及身份
+     */
+    public ImportedSession decodeCheckpoint(String serialized) {
+        return decode(serialized, true);
+    }
+
+    /**
+     * 读取完整会话或允许未结束交换的检查点。
+     *
+     * @param serialized 会话 JSON
+     * @param allowIncomplete 是否允许末尾交换未结束
+     * @return 已解码状态
+     */
+    private ImportedSession decode(String serialized, boolean allowIncomplete) {
         try {
             /** 根 JSON 对象。 */
             JsonNode root = mapper.readTree(serialized);
@@ -227,7 +248,7 @@ public final class SessionExportCodec {
                 messages.add(new Message(requiredText(node, "messageId"),
                         Role.valueOf(requiredText(node, "role")), blocks, calls, results, metadata));
             }
-            if (!messages.isEmpty()) SessionHistoryValidator.validateExchange(messages);
+            if (!messages.isEmpty() && !allowIncomplete) SessionHistoryValidator.validateExchange(messages);
             /** 历史版本。 */
             if (!root.path("version").isIntegralNumber() || !root.path("version").canConvertToLong()) {
                 throw new IllegalArgumentException("会话版本类型无效");

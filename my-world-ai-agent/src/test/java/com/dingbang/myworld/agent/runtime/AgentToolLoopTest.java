@@ -77,6 +77,7 @@ class AgentToolLoopTest {
         run.execute();
         /** 第一次运行的完整结果。 */
         AgentResult result = run.getResult().toCompletableFuture().get(3, TimeUnit.SECONDS);
+        assertThat(observer.awaitCompletion(3, TimeUnit.SECONDS)).isTrue();
         /** 第二个模型请求的消息历史。 */
         List<Message> messages = gateway.getRequests().get(1).getMessages();
 
@@ -179,6 +180,7 @@ class AgentToolLoopTest {
         run.execute();
         /** 达到限制的结果。 */
         AgentResult result = run.getResult().toCompletableFuture().get(3, TimeUnit.SECONDS);
+        assertThat(observer.awaitCompletion(3, TimeUnit.SECONDS)).isTrue();
 
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.LIMIT_EXCEEDED);
         assertThat(result.getError().getCode()).isEqualTo("LIMIT_EXCEEDED");

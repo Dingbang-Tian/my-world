@@ -14,6 +14,8 @@ import com.dingbang.myworld.agent.memory.ContextAssembler;
 import com.dingbang.myworld.agent.memory.ContextPolicy;
 import com.dingbang.myworld.agent.memory.MemorySummary;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
+import com.dingbang.myworld.agent.persistence.RunJournal;
+import com.dingbang.myworld.agent.persistence.RecoveryJournal;
 import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
 import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
 import com.dingbang.myworld.agent.orchestration.Plan;
@@ -32,6 +34,7 @@ import com.dingbang.myworld.agent.tool.ToolExecutionEvent;
 import com.dingbang.myworld.agent.tool.ToolExecutor;
 import com.dingbang.myworld.agent.tool.ToolExecutionPhase;
 import com.dingbang.myworld.agent.tool.ToolRegistry;
+import com.dingbang.myworld.agent.tool.Tool;
 import com.dingbang.myworld.aiframework.api.CancellationToken;
 import com.dingbang.myworld.aiframework.api.ExecutionControlException;
 import com.dingbang.myworld.aiframework.api.ModelExecutionContext;
@@ -115,6 +118,18 @@ final class DefaultAgentRun implements AgentRun {
     private final ContextAssembler contextAssembler = new ContextAssembler();
     /** 创建独立子会话所用的可信仓库。 */
     private final SessionRepository sessions;
+    /** 运行、事件及工具检查点记录器。 */
+    private final RunJournal journal;
+    /** 显式恢复的来源运行；普通运行时为 null。 */
+    private final String resumedFromRunId;
+    /** 已确认的模型续接边界，可为 null。 */
+    private final RecoveryJournal.RecoveryCheckpoint recovery;
+    /** 可复用已完成步骤的计划恢复状态。 */
+    private final RecoveryJournal.PlanRecovery planRecovery;
+    /** 当前子运行所属父运行；根运行为 null。 */
+    private final String parentRunId;
+    /** 整棵运行树的根标识。 */
+    private final String rootRunId;
     /** 当前运行的子 Agent 嵌套层数。 */
     private final int depth;
     /** 子运行继承的父级截止时间；根运行为 null。 */
@@ -137,6 +152,8 @@ final class DefaultAgentRun implements AgentRun {
     private boolean terminal;
     /** 是否持有会话运行权。 */
     private boolean ownsSession;
+    /** 运行记录是否已在持久化日志创建。 */
+    private boolean journalStarted;
     /** 当前运行的事件序号。 */
     private long eventSequence;
     /** 已完成模型回合的用量。 */
@@ -200,16 +217,24 @@ final class DefaultAgentRun implements AgentRun {
      * @param subAgentTemplate 固定的子 Agent 模板，未授权委派时为 null
      * @param summaryTemplate 固定的摘要模板
      * @param sessions 创建独立子会话的仓库
+     * @param journal 运行检查点记录器
      * @param executor 执行模型和工具的后台执行器
      * @param depth 当前子 Agent 层数
      * @param inheritedDeadline 父级截止时间，根运行为 null
+     * @param resumedFromRunId 恢复来源运行，可为 null
+     * @param recovery 已确认的检查点，可为 null
+     * @param planRecovery 已完成步骤的计划状态，可为 null
+     * @param parentRunId 父运行标识，可为 null
+     * @param rootRunId 根运行标识
      */
     DefaultAgentRun(String runId, String sessionId, AgentDefinition definition, AgentRequest request,
                     Message systemMessage, PromptTemplateSnapshot template,
                     Session session, ModelGateway gateway, ToolRegistry tools,
                     PromptTemplateSnapshot planStepTemplate, PromptTemplateSnapshot subAgentTemplate,
                     PromptTemplateSnapshot summaryTemplate, SessionRepository sessions,
-                    Executor executor, int depth, Instant inheritedDeadline) {
+                    RunJournal journal, Executor executor, int depth, Instant inheritedDeadline,
+                    String resumedFromRunId, RecoveryJournal.RecoveryCheckpoint recovery,
+                    RecoveryJournal.PlanRecovery planRecovery, String parentRunId, String rootRunId) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         this.definition = Objects.requireNonNull(definition, "Agent 定义不能为 null");
@@ -224,6 +249,12 @@ final class DefaultAgentRun implements AgentRun {
         this.subAgentTemplate = subAgentTemplate;
         this.summaryTemplate = Objects.requireNonNull(summaryTemplate, "摘要模板不能为 null");
         this.sessions = Objects.requireNonNull(sessions, "会话仓库不能为 null");
+        this.journal = Objects.requireNonNull(journal, "运行日志不能为 null");
+        this.resumedFromRunId = resumedFromRunId;
+        this.recovery = recovery;
+        this.planRecovery = planRecovery;
+        this.parentRunId = parentRunId;
+        this.rootRunId = Objects.requireNonNull(rootRunId, "根运行标识不能为 null");
         this.depth = depth;
         this.inheritedDeadline = inheritedDeadline;
         /** 本轮模型可见的工具说明。 */
@@ -314,6 +345,9 @@ final class DefaultAgentRun implements AgentRun {
             }
         }
         try {
+            journal.start(runId, sessionId, request, definition.getModelId(),
+                    template.getContentHash(), resumedFromRunId, parentRunId, rootRunId);
+            journalStarted = true;
             /** 当前用户的完整消息。 */
             Message user = userMessage(runId + ":user", request);
             synchronized (stateLock) {
@@ -321,9 +355,18 @@ final class DefaultAgentRun implements AgentRun {
                 SessionSnapshot snapshot = session.snapshot();
                 sessionVersion = snapshot.getVersion();
                 initialSnapshot = snapshot;
-                messages = contextAssembler.assemble(systemMessage, snapshot, List.of(user));
-                exchange = new ArrayList<>();
-                exchange.add(user);
+                if (recovery != null && recovery.sessionVersion() != snapshot.getVersion()) {
+                    throw new IllegalStateException("NEEDS_REVIEW: 会话版本在中断后已变化");
+                }
+                exchange = recovery == null ? new ArrayList<>(List.of(user))
+                        : new ArrayList<>(recovery.exchange());
+                messages = contextAssembler.assemble(systemMessage, snapshot, exchange);
+                if (recovery != null) {
+                    toolCalls = (int) exchange.stream().mapToLong(message -> message.getToolCalls().size()).sum();
+                    modelTurnsUsed = recovery.nextModelTurn() - 1;
+                }
+                journal.checkpoint(runId, sessionId, request, sessionVersion,
+                        recovery == null ? 1 : recovery.nextModelTurn(), exchange);
                 /** 当前运行的实际截止时间。 */
                 Instant ownDeadline = Instant.now().plus(definition.getLimits().getTimeout());
                 deadline = inheritedDeadline == null || ownDeadline.isBefore(inheritedDeadline)
@@ -333,9 +376,14 @@ final class DefaultAgentRun implements AgentRun {
                 timeoutTask = AgentExecutors.TIMER.schedule(this::timeout,
                         remainingNanos, TimeUnit.NANOSECONDS);
             }
-            scheduleModel(1);
+            if (planRecovery != null) {
+                restorePlan();
+                advancePlan(recovery.nextModelTurn() - 1);
+            } else {
+                scheduleModel(recovery == null ? 1 : recovery.nextModelTurn());
+            }
         } catch (RuntimeException exception) {
-            fail("PREPARATION_FAILURE", exception);
+            fail(persistenceCode("PREPARATION_FAILURE", exception), exception);
         }
     }
 
@@ -722,7 +770,7 @@ final class DefaultAgentRun implements AgentRun {
         } catch (ExecutionControlException exception) {
             stopForControl(exception);
         } catch (RuntimeException exception) {
-            handleModelFailure("INVALID_MODEL_TURN", exception, turnNumber);
+            handleModelFailure(persistenceCode("INVALID_MODEL_TURN", exception), exception, turnNumber);
         }
     }
 
@@ -763,15 +811,20 @@ final class DefaultAgentRun implements AgentRun {
             messages.add(assistant);
             if (planRunner == null) {
                 exchange.add(assistant);
+                journal.checkpoint(runId, sessionId, request, sessionVersion, turnNumber + 1, exchange);
             }
         }
         if (calls.size() == 1 && "create_plan".equals(calls.get(0).getName()) && planRunner == null
                 && planStepTemplate != null) {
+            session.requireActiveLease();
+            journal.toolStarted(runId, calls.get(0));
             startPlan(calls.get(0), turnNumber);
             return;
         }
         if (calls.size() == 1 && "create_sub_agent".equals(calls.get(0).getName())
                 && subAgentTemplate != null) {
+            session.requireActiveLease();
+            journal.toolStarted(runId, calls.get(0));
             startSubAgent(calls.get(0), turnNumber);
             return;
         }
@@ -787,6 +840,8 @@ final class DefaultAgentRun implements AgentRun {
             }
             /** 由运行时构造的可信工具上下文。 */
             ToolExecutionContext context = new ToolExecutionContext(runId, sessionId, null, deadline, cancellation);
+            session.requireActiveLease();
+            journal.toolStarted(runId, call);
             /** 与调用标识配对的真实或结构化失败结果。 */
             /** 计划内部的递归调用始终由程序拒绝，即使模型伪造工具名称。 */
             ToolResult result = planRunner != null && "create_plan".equals(call.getName())
@@ -796,6 +851,16 @@ final class DefaultAgentRun implements AgentRun {
                     ? new ToolResult(call.getCallId(), ToolResultStatus.ERROR,
                     "子 Agent 调用必须单独成批执行", "POLICY_DENIED", false)
                     : toolExecutor.execute(call, context, this::emitToolEvent);
+            /** 当前调用的可信工具声明。 */
+            Tool<?> executedTool = authorizedTools.getAuthorizedTool(call.getName());
+            if (result.getStatus() == ToolResultStatus.ERROR
+                    && "TOOL_EXECUTION_ERROR".equals(result.getErrorCode())
+                    && executedTool != null && executedTool.mayHaveExternalSideEffects()) {
+                stop(AgentResultStatus.NEEDS_REVIEW, AgentEventType.NEEDS_REVIEW,
+                        "NEEDS_REVIEW", "文件或命令工具抛出异常，副作用状态需要核查", null);
+                return;
+            }
+            journal.toolCompleted(runId, result);
             if (planRunner != null) {
                 /** 可为计划声明语义失败的可信工具。 */
                 Object authorizedTool = authorizedTools.getAuthorizedTool(call.getName());
@@ -824,6 +889,7 @@ final class DefaultAgentRun implements AgentRun {
                 messages.add(toolMessage);
                 if (planRunner == null) {
                     exchange.add(toolMessage);
+                    journal.checkpoint(runId, sessionId, request, sessionVersion, turnNumber + 1, exchange);
                 }
             }
         }
@@ -908,7 +974,8 @@ final class DefaultAgentRun implements AgentRun {
                     gateway, childTools,
                     childTools.getAuthorizedTool("create_plan") == null ? null : planStepTemplate,
                     childTools.getAuthorizedTool("create_sub_agent") == null ? null : subAgentTemplate,
-                    summaryTemplate, sessions, executor, depth + 1, deadline);
+                    summaryTemplate, sessions, journal, executor, depth + 1, deadline,
+                    null, null, null, runId, rootRunId);
             emitToolEvent(new ToolExecutionEvent(call.getCallId(), call.getName(),
                     ToolExecutionPhase.CALLING, null));
             /** 子级在父取消时终止，完成回调再续接父级模型。 */
@@ -974,6 +1041,7 @@ final class DefaultAgentRun implements AgentRun {
      * @param toolResult 真实或结构化错误结果
      */
     private void finishSubAgentTool(ToolCall call, int turnNumber, int childTurns, ToolResult toolResult) {
+        journal.toolCompleted(runId, toolResult);
         emitToolEvent(new ToolExecutionEvent(call.getCallId(), call.getName(),
                 toolResult.getStatus() == ToolResultStatus.SUCCESS
                         ? ToolExecutionPhase.COMPLETED : ToolExecutionPhase.FAILED, toolResult));
@@ -983,6 +1051,9 @@ final class DefaultAgentRun implements AgentRun {
             }
         }
         appendOrchestrationToolResult(toolResult);
+        if (planRunner == null) {
+            journal.checkpoint(runId, sessionId, request, sessionVersion, turnNumber + childTurns + 1, exchange);
+        }
         scheduleModel(turnNumber + childTurns + 1);
     }
 
@@ -1034,9 +1105,11 @@ final class DefaultAgentRun implements AgentRun {
             /** 与失败调用配对的校验结果。 */
             ToolResult result = new ToolResult(call.getCallId(), ToolResultStatus.ERROR,
                     exception.getMessage(), "TOOL_VALIDATION_ERROR", false);
+            journal.toolCompleted(runId, result);
             emitToolEvent(new ToolExecutionEvent(call.getCallId(), call.getName(),
                     ToolExecutionPhase.FAILED, result));
             appendOrchestrationToolResult(result);
+            journal.checkpoint(runId, sessionId, request, sessionVersion, turnNumber + 1, exchange);
             scheduleModel(turnNumber + 1);
             return;
         }
@@ -1053,6 +1126,46 @@ final class DefaultAgentRun implements AgentRun {
             emitPlanLocked(AgentEventType.PLAN_CREATED, 0, null, plan.getDescription());
         }
         advancePlan(turnNumber);
+    }
+
+    /**
+     * 在新运行中重建计划，并将已完成步骤作为确定结果带入下一步骤。
+     */
+    private void restorePlan() {
+        if (planStepTemplate == null || recovery == null || planRecovery == null) {
+            throw new IllegalStateException("NEEDS_REVIEW: 计划恢复输入不完整");
+        }
+        /** 当前授权的计划参数描述。 */
+        ToolDescriptor<?> descriptor = authorizedTools.getDescriptors().stream()
+                .filter(item -> item.getName().equals("create_plan")
+                        && item.getParameterType() == CreatePlanTool.Parameters.class)
+                .findFirst().orElseThrow(() -> new IllegalStateException("NEEDS_REVIEW: 计划工具不再获授权"));
+        /** 原计划参数，在当前可信上限内重新校验。 */
+        CreatePlanTool.Parameters parameters = (CreatePlanTool.Parameters) descriptor.parse(
+                planRecovery.call().getArgumentsJson());
+        /** 重新绑定当前可信步骤上限的计划定义。 */
+        Plan plan = new Plan(parameters.name, parameters.description, parameters.steps,
+                parameters.failurePolicy == null ? Plan.FailurePolicy.STOP : parameters.failurePolicy,
+                definition.getLimits().getMaxPlanSteps());
+        synchronized (stateLock) {
+            planRunner = PlanRunner.restore(plan, planRecovery.statuses(), planRecovery.results());
+            planCall = planRecovery.call();
+            parentMessages = messages;
+            parentExchange = exchange;
+            planBaseMessages = new ArrayList<>(messages.subList(0, messages.size() - 1));
+            planTranscript.clear();
+            journal.toolStarted(runId, planCall);
+            emitPlanLocked(AgentEventType.PLAN_CREATED, 0, null, plan.getDescription());
+            /** 已完成步骤的结果由数据库复制到新运行的计划记录。 */
+            for (int index = 0; index < planRecovery.statuses().size(); index++) {
+                /** 原步骤状态。 */
+                PlanStepStatus status = planRecovery.statuses().get(index);
+                if (status != PlanStepStatus.PENDING) {
+                    emitPlanLocked(AgentEventType.PLAN_STEP_FINISHED, index + 1, status,
+                            planRecovery.results().get(index) == null ? "已跳过" : planRecovery.results().get(index));
+                }
+            }
+        }
     }
 
     /**
@@ -1127,6 +1240,10 @@ final class DefaultAgentRun implements AgentRun {
     private void handleModelFailure(String code, Throwable error, int turnNumber) {
         synchronized (stateLock) {
             if (terminal) return;
+            if ("PERSISTENCE_ERROR".equals(code)) {
+                fail(code, error);
+                return;
+            }
             if (planRunner == null) {
                 fail(code, error);
                 return;
@@ -1176,9 +1293,11 @@ final class DefaultAgentRun implements AgentRun {
         ToolResult result = new ToolResult(planCall.getCallId(),
                 succeeded ? ToolResultStatus.SUCCESS : ToolResultStatus.ERROR,
                 summary, succeeded ? null : "PLAN_FAILED", false);
+        journal.toolCompleted(runId, result);
         emitToolEvent(new ToolExecutionEvent(planCall.getCallId(), planCall.getName(),
                 succeeded ? ToolExecutionPhase.COMPLETED : ToolExecutionPhase.FAILED, result));
         appendOrchestrationToolResult(result);
+        journal.checkpoint(runId, sessionId, request, sessionVersion, turnNumber + 1, exchange);
         scheduleModel(turnNumber + 1);
     }
 
@@ -1237,9 +1356,12 @@ final class DefaultAgentRun implements AgentRun {
      * @param detail 任务说明或真实结果
      */
     private void emitPlanLocked(AgentEventType type, int stepNumber, PlanStepStatus status, String detail) {
-        eventPublisher.publish(new AgentEvent(runId, sessionId, ++eventSequence, Instant.now(), type,
+        /** 当前计划事件。 */
+        AgentEvent event = new AgentEvent(runId, sessionId, ++eventSequence, Instant.now(), type,
                 null, null, null, null, new PlanEvent(planRunner.getPlan().getName(), stepNumber,
-                planRunner.getPlan().getSteps().size(), status, detail)));
+                planRunner.getPlan().getSteps().size(), status, detail));
+        if (journalStarted) journal.event(event);
+        eventPublisher.publish(event);
     }
 
     /**
@@ -1273,6 +1395,14 @@ final class DefaultAgentRun implements AgentRun {
                     template.getTemplateId(), template.getContentHash(), usageTotal)
                     : new AgentResult(runId, sessionId, request.getRequestId(), AgentResultStatus.COMPLETED,
                     finalText, reason, null, template.getTemplateId(), template.getContentHash(), usageTotal);
+            if (journalStarted) {
+                try {
+                    journal.finish(result);
+                } catch (RuntimeException exception) {
+                    fail("PERSISTENCE_ERROR", exception);
+                    return;
+                }
+            }
             terminal = true;
             releaseLocked();
             emitLocked(planFailed ? AgentEventType.FAILED : AgentEventType.COMPLETED,
@@ -1321,6 +1451,8 @@ final class DefaultAgentRun implements AgentRun {
             timeout();
         } else if ("LIMIT_EXCEEDED".equals(error.getCode())) {
             limitExceeded(error.getMessage(), null);
+        } else if ("PERSISTENCE_ERROR".equals(error.getCode())) {
+            fail("PERSISTENCE_ERROR", error);
         } else {
             cancel();
         }
@@ -1338,6 +1470,19 @@ final class DefaultAgentRun implements AgentRun {
                 ? error.getClass().getSimpleName() : error.getMessage();
         stop(AgentResultStatus.FAILED, AgentEventType.FAILED, code, message, null);
     }
+
+    /**
+     * 让数据库异常保留稳定错误类别，不伪装成模型协议错误。
+     *
+     * @param fallback 原执行阶段错误码
+     * @param error 实际异常
+     * @return 存储错误或原错误码
+     */
+    private static String persistenceCode(String fallback, Throwable error) {
+        return error.getMessage() != null && error.getMessage().startsWith("PERSISTENCE_ERROR")
+                ? "PERSISTENCE_ERROR" : fallback;
+    }
+
 
     /**
      * 使所有失败或中断路径竞争同一个终态。
@@ -1359,6 +1504,13 @@ final class DefaultAgentRun implements AgentRun {
             terminal = true;
             result = new AgentResult(runId, sessionId, request.getRequestId(), status, null, reason,
                     new AgentError(code, message), template.getTemplateId(), template.getContentHash(), usageTotal);
+            if (journalStarted) {
+                try {
+                    journal.finish(result);
+                } catch (RuntimeException ignored) {
+                    // 持久化故障不能使调用方的结果 Future 永久悬挂。
+                }
+            }
             releaseLocked();
             emitLocked(type, null, result, null, null);
         }
@@ -1403,8 +1555,18 @@ final class DefaultAgentRun implements AgentRun {
      */
     private void emitLocked(AgentEventType type, String text, AgentResult result,
                             ToolExecutionEvent toolEvent, ModelTokenUsage usage) {
-        eventPublisher.publish(new AgentEvent(runId, sessionId, ++eventSequence, Instant.now(),
-                type, text, result, toolEvent, usage));
+        /** 当前有序事件。 */
+        AgentEvent event = new AgentEvent(runId, sessionId, ++eventSequence, Instant.now(),
+                type, text, result, toolEvent, usage);
+        if (journalStarted) {
+            try {
+                journal.event(event);
+            } catch (RuntimeException exception) {
+                if (result == null) throw exception;
+                // 终态仍须通知等待者；持久化故障已由运行结果处理。
+            }
+        }
+        eventPublisher.publish(event);
     }
 
     /**

@@ -47,6 +47,16 @@ public final class ExecuteCommandTool implements Tool<ExecuteCommandTool.Args>, 
     private final Map<String, List<CommandReport>> reports = new ConcurrentHashMap<>();
 
     /**
+     * 命令失败时无法仅凭异常判断进程是否已产生副作用。
+     *
+     * @return true
+     */
+    @Override
+    public boolean mayHaveExternalSideEffects() {
+        return true;
+    }
+
+    /**
      * 绑定可信工作目录和环境变量白名单。
      *
      * @param policy 工作目录策略

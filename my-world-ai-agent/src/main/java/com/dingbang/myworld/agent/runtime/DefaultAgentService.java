@@ -2,10 +2,13 @@ package com.dingbang.myworld.agent.runtime;
 
 import com.dingbang.myworld.agent.api.AgentDefinition;
 import com.dingbang.myworld.agent.api.AgentRequest;
+import com.dingbang.myworld.agent.api.AgentRecoveryService;
 import com.dingbang.myworld.agent.api.AgentResult;
 import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.api.AgentService;
 import com.dingbang.myworld.agent.prompt.PromptRepository;
+import com.dingbang.myworld.agent.persistence.RunJournal;
+import com.dingbang.myworld.agent.persistence.RecoveryJournal;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
 import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
 import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
@@ -41,7 +44,7 @@ import java.util.concurrent.Executor;
  * @author Sebastian
  * @since 2026/10/02
  */
-public final class DefaultAgentService implements AgentService, AgentSessionService {
+public final class DefaultAgentService implements AgentService, AgentSessionService, AgentRecoveryService {
 
     /**
      * 单次模型调用入口。
@@ -77,6 +80,9 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
      * 当前进程的会话历史。
      */
     private final SessionRepository sessions;
+
+    /** 运行、事件和工具检查点记录器。 */
+    private final RunJournal journal;
 
     /** 会话 JSON 编解码器。 */
     private final SessionExportCodec sessionCodec = new SessionExportCodec();
@@ -140,11 +146,31 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
     public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
                                Collection<AgentDefinition> definitions, ToolRegistry tools,
                                Collection<AgentSkill> skills, Executor executor, SessionRepository sessions) {
+        this(gateway, prompts, definitions, tools, skills, executor, sessions, RunJournal.NONE);
+    }
+
+    /**
+     * 创建同时使用可替换会话仓库和运行日志的 Agent 服务。
+     *
+     * @param gateway 单次模型入口
+     * @param prompts 提示词仓库
+     * @param definitions 可信定义
+     * @param tools 可信工具全集
+     * @param skills 可用技能
+     * @param executor 后台执行器
+     * @param sessions 会话仓库
+     * @param journal 运行检查点记录器
+     */
+    public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
+                               Collection<AgentDefinition> definitions, ToolRegistry tools,
+                               Collection<AgentSkill> skills, Executor executor, SessionRepository sessions,
+                               RunJournal journal) {
         this.gateway = Objects.requireNonNull(gateway, "模型入口不能为 null");
         this.prompts = Objects.requireNonNull(prompts, "提示词仓库不能为 null");
         this.executor = Objects.requireNonNull(executor, "模型执行器不能为 null");
         this.tools = Objects.requireNonNull(tools, "工具注册表不能为 null");
         this.sessions = Objects.requireNonNull(sessions, "会话仓库不能为 null");
+        this.journal = Objects.requireNonNull(journal, "运行日志不能为 null");
         Objects.requireNonNull(skills, "技能集合不能为 null");
         /** 技能索引。 */
         Map<String, AgentSkill> indexedSkills = new LinkedHashMap<>();
@@ -185,6 +211,21 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
      */
     @Override
     public AgentRun prepare(AgentRequest request) {
+        return prepare(request, null, null, null);
+    }
+
+    /**
+     * 固定普通请求或显式恢复请求的运行输入。
+     *
+     * @param request 用户请求
+     * @param resumedFromRunId 恢复来源运行，可为 null
+     * @param recovery 已确定的检查点，可为 null
+     * @param planRecovery 可复用已完成步骤的计划状态，可为 null
+     * @return 尚未执行的运行
+     */
+    private AgentRun prepare(AgentRequest request, String resumedFromRunId,
+                             RecoveryJournal.RecoveryCheckpoint recovery,
+                             RecoveryJournal.PlanRecovery planRecovery) {
         Objects.requireNonNull(request, "Agent 请求不能为 null");
         // prepare 只固定本轮输入和会话，不会调用 ModelGateway。
         // 从可信定义集合解析身份，用户请求不能自行指定模型或模板。
@@ -219,6 +260,9 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
                 .anyMatch(descriptor -> descriptor.getName().equals("create_plan")
                         && descriptor.getParameterType() == CreatePlanTool.Parameters.class)
                 ? prompts.get("agent/plan-step") : null;
+        if (planRecovery != null && planStepTemplate == null) {
+            throw new IllegalStateException("NEEDS_REVIEW: 当前 Agent 已不再授权计划工具");
+        }
         /** 仅对已授权子 Agent 工具固定委派模板快照。 */
         PromptTemplateSnapshot subAgentTemplate = selectedTools.getDescriptors().stream()
                 .anyMatch(descriptor -> descriptor.getName().equals("create_sub_agent")
@@ -235,7 +279,41 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
         /** 已校验归属的会话。 */
         Session session = sessionFor(request, sessionId);
         return new DefaultAgentRun(runId, sessionId, definition, request, system, template, session, gateway,
-                selectedTools, planStepTemplate, subAgentTemplate, summaryTemplate, sessions, executor, 0, null);
+                selectedTools, planStepTemplate, subAgentTemplate, summaryTemplate, sessions, journal,
+                executor, 0, null, resumedFromRunId, recovery, planRecovery, null, runId);
+    }
+
+    /**
+     * 显式恢复停在已确认工具结果或计划步骤边界的中断运行。
+     *
+     * @param priorRunId 原运行标识
+     * @param ownerId 可信所有者
+     * @param appId 应用标识
+     * @param newRequestId 新请求幂等标识
+     * @return 未启动的新运行
+     * @throws IllegalStateException 原运行有未知副作用或尚未中断时
+     */
+    @Override
+    public AgentRun resume(String priorRunId, String ownerId, String appId, String newRequestId) {
+        if (!(journal instanceof RecoveryJournal recoveryJournal)) {
+            throw new IllegalStateException("RESUME_REQUIRES_PERSISTENCE");
+        }
+        /** 原运行的可信归属与恢复状态。 */
+        RecoveryJournal.RunRecord previous = recoveryJournal.find(priorRunId, ownerId, appId);
+        if (previous == null) throw new IllegalArgumentException("未知的运行标识或归属不匹配");
+        if (previous.status() != com.dingbang.myworld.agent.api.AgentResultStatus.INTERRUPTED) {
+            throw new IllegalStateException("RUN_NOT_RESUMABLE");
+        }
+        /** 已确认结果构成的安全模型续接边界。 */
+        RecoveryJournal.RecoveryCheckpoint recovery = recoveryJournal.recoveryCheckpoint(priorRunId);
+        /** 可复用的已完成计划步骤。 */
+        RecoveryJournal.PlanRecovery planRecovery = recoveryJournal.planRecovery(priorRunId);
+        if (previous.hasAttachments() || (recoveryJournal.hasToolExecutions(priorRunId) && recovery == null)
+                || (planRecovery != null && recovery == null)) {
+            throw new IllegalStateException("NEEDS_REVIEW");
+        }
+        return prepare(new AgentRequest(ownerId, appId, previous.agentId(), previous.sessionId(),
+                newRequestId, previous.userText(), ModelOptions.empty()), priorRunId, recovery, planRecovery);
     }
 
     /**

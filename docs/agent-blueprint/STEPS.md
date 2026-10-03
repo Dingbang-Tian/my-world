@@ -280,13 +280,13 @@
 
 **学习目标：**区分对话内容、执行状态和压缩摘要的存储职责。
 
-**实现任务：**实现 JDBC 仓库与 H2 文件模式配置、版本化迁移；覆盖 ARCHITECTURE 的 session/message/run/event/tool/summary/plan 表及 codegen 产物记录；数据库事务、唯一约束、乐观锁、短租约落实。memory 与 jdbc 可配置替换。
+**实现任务：**实现 MySQL + MyBatis-Plus Service/Mapper 存储与版本化迁移；覆盖 ARCHITECTURE 的 session/message/run/event/tool/summary/plan 表及 codegen 产物记录；数据库事务、唯一约束、乐观锁、短租约落实。memory 与 mysql 可配置替换。
 
 **流程：**发起会话 → 记录工具和最终结果 → 正常关闭 → 新进程/新容器实例打开同一文件库 → 加载会话继续追问。
 
 **验证：**重启恢复历史与摘要、消息序号唯一、owner/app 隔离、并发版本冲突、请求幂等键、数据库错误、不能持久化客户端和 Key；长模型请求不占数据库事务。存储实现通过同一契约测试。
 
-**技术选择：**JDBC/H2/Flyway 使用目标 BOM 可兼容版本，在首次引入时验证依赖。生产数据库未指定，迁移脚本可按方言扩展，但只声称实测数据库可用。
+**技术选择：**按用户最新要求使用 MySQL、MyBatis-Plus 和 Flyway；生产运行脚本使用 MySQL 方言，并在真实 MySQL 测试库验证。H2/JDBC 旧实现仅留在测试源码用于历史回归。
 
 **理解问题：**为什么只保存 finalText 不够恢复？为什么持久化了 runId 仍不代表外部工具“只执行一次”？
 

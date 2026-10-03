@@ -26,6 +26,15 @@ public interface Tool<P> {
     ToolExecutionResult execute(P parameters, ToolExecutionContext context);
 
     /**
+     * 声明执行失败时是否可能留下不能由 Java 异常判断的外部副作用。
+     *
+     * @return 文件写入、命令等工具返回 true
+     */
+    default boolean mayHaveExternalSideEffects() {
+        return false;
+    }
+
+    /**
      * 根据工具类与参数字段注解生成默认描述；实现类也可覆盖以显式提供描述。
      *
      * @return 工具描述

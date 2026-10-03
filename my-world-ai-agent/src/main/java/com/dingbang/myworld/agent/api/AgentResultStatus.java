@@ -30,5 +30,9 @@ public enum AgentResultStatus {
     /**
      * 进程中断。
      */
-    INTERRUPTED
+    INTERRUPTED,
+    /**
+     * 存在无法确定是否已发生的副作用，等待显式核查。
+     */
+    NEEDS_REVIEW
 }

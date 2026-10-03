@@ -1,5 +1,8 @@
 package com.dingbang.myworld.aiapp.codegen.tool;
 
+import com.dingbang.myworld.agent.persistence.RunJournal;
+import com.dingbang.myworld.aiframework.api.ExecutionControlException;
+
 import com.dingbang.myworld.agent.tool.Tool;
 import com.dingbang.myworld.agent.tool.ToolDescriptor;
 import com.dingbang.myworld.agent.tool.ToolExecutionContext;
@@ -45,6 +48,8 @@ public final class FileTools {
     private static final int MAX_SEARCH_FILES = 1000;
     /** 固定工作目录路径策略。 */
     private final WorkspacePolicy policy;
+    /** 文件副作用的持久化记录器。 */
+    private final RunJournal journal;
     /** 按运行标识保存成功的文件产物。 */
     private final Map<String, List<FileArtifact>> artifacts = new ConcurrentHashMap<>();
 
@@ -54,7 +59,18 @@ public final class FileTools {
      * @param policy 工作目录路径策略
      */
     public FileTools(WorkspacePolicy policy) {
+        this(policy, RunJournal.NONE);
+    }
+
+    /**
+     * 创建带有持久化产物记录的文件工具集合。
+     *
+     * @param policy 工作目录路径策略
+     * @param journal 运行日志
+     */
+    public FileTools(WorkspacePolicy policy, RunJournal journal) {
         this.policy = Objects.requireNonNull(policy, "路径策略不能为空");
+        this.journal = Objects.requireNonNull(journal, "运行日志不能为空");
     }
 
     /**
@@ -101,6 +117,11 @@ public final class FileTools {
      * @param sha256 文件版本
      */
     private void record(ToolExecutionContext context, String action, String path, String sha256) {
+        try {
+            journal.artifact(context.getRunId(), action, path, sha256);
+        } catch (RuntimeException exception) {
+            throw new ExecutionControlException("PERSISTENCE_ERROR", "文件已修改但产物记录未保存，需要核查");
+        }
         artifacts.computeIfAbsent(context.getRunId(), ignored -> Collections.synchronizedList(new ArrayList<>()))
                 .add(new FileArtifact(context.getRunId(), action, path, sha256));
     }
@@ -127,6 +148,13 @@ public final class FileTools {
             @Override
             public ToolDescriptor<P> descriptor() {
                 return ToolDescriptor.of(name, description, type);
+            }
+
+            /** {@inheritDoc} */
+            @Override
+            public boolean mayHaveExternalSideEffects() {
+                return "create_file".equals(name) || "edit_file".equals(name)
+                        || "move_file".equals(name) || "delete_file".equals(name);
             }
 
             /** {@inheritDoc} */

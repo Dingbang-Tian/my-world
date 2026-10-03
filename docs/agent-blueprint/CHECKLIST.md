@@ -16,7 +16,7 @@
 | F06 | 工具异常反馈给模型，供模型修正 | ToolExecutor.handleToolError | ai-agent，S06 | S06 已验证参数失败为 `TOOL_VALIDATION_ERROR`、Java 工具不执行、模型据结果发出修正调用；其他异常的模型修正待扩展 |
 | F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | `AgentSkill` 按 ID 聚合工具和说明；运行时去重并写入 SYSTEM；S10/S11 `CodegenFactory` 只为 codegen 组装文件技能，按 write-enabled 选择 5 或 9 个工具；`CodegenServiceTest` 验证 |
 | F08 | 关闭技能与内置工具，作为普通客户端使用 | AgentClient.clearAllSkills、getAllTools | ai-agent，S06/S09 | 定义可使用空 skillIds/toolIds；S04 原无工具对话和 S06 未授权工具错误已验证；管理 API 待 S09 |
-| F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S09 `SessionRepository` 保存完整已完成交换及版本；`AgentSessionServiceTest` 验证查询与恢复，S06 工具历史回归通过；数据库持久化待 S18 |
+| F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09/S18 | S09 `SessionRepository` 保存完整已完成交换及版本；S18 `MybatisSessionService` 在同一事务保存状态与唯一序号消息，`MybatisMysqlPersistenceTest` 验证 MySQL 跨上下文继续会话 |
 | F10 | Token/轮次触发摘要、摘要回注、压缩事件 | AgentClientSession.summarizeHistory* | ai-agent，S15 | `ContextPolicy`、`ContextAssembler`、`MemorySummary` 与 `DefaultAgentRun.prepareInitialContext`；`ContextMemoryTest` 验证阈值、分块、工具配对、失败、超窗、事件及用量；原始历史保留 |
 | F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | `SessionExportCodec` 导出可选 `memorySummary` 和完整原始历史；导入校验覆盖位置在交换边界并绑定当前可信定义与策略；`ContextMemoryTest.compressesRoundsAndRestoresSummary` 验证 |
 | F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | `orchestration/Plan`、`PlanRunner`、`CreatePlanTool` 与 `DefaultAgentRun`；`PlanExecutionTest` 验证步骤依赖、STOP/CONTINUE、递归拒绝、共享预算和父取消；`CodegenCommandLoopTest.planCarriesCompileFailureIntoCorrectionStep` 验证真实编译失败与修正，完整 81/81 测试通过 |
@@ -92,11 +92,11 @@
 - [ ] 文件路径与工作目录策略、工具授权、参数校验和输出限制。
 - [ ] owner/app 范围的会话访问校验，以及单会话并发冲突处理。
 - [ ] 完整会话、摘要、运行事件、工具结果、计划步骤和产物持久化。
-- [ ] requestId 幂等键，明确不等于外部副作用 exactly-once。
-- [ ] 中断标记与显式恢复，未知副作用可识别且不会盲目重跑。
+- [x] requestId 数据库唯一约束；不将其解释为外部副作用 exactly-once。见 `MybatisMysqlPersistenceTest` 和历史回归 `JdbcPersistenceRecoveryTest.rejectsConcurrentLeaseAndDuplicateRequest`。
+- [x] 启动中断标记与显式恢复；未知副作用为 `NEEDS_REVIEW`，不盲目重跑。见 `JdbcPersistenceRecoveryTest`。
 - [ ] 日志脱敏、追踪关联、Token/耗时指标、配置和模板 hash 记录。
 - [ ] 确定性回归案例、协议契约测试、SDK 消费者 smoke、平台/供应商验证边界。
-- [ ] 存储迁移脚本与本地重启恢复示例。
+- [x] Flyway MySQL V1 迁移脚本及真实 MySQL 跨上下文继续会话测试；H2/JDBC 历史回归保留在测试目录，见 notes/S18.md。
 - [ ] 对外 demo 入口默认仅本地/开发配置启用，身份来源清晰。
 
 ## 6. 后续扩展待办（不算第一版功能缺失）
@@ -132,8 +132,8 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 | A06 | 两步骤计划有数据依赖 | S13 `PlanExecutionTest.passesPriorArtifactAndReportsLifecycle` 验证下一步读取前一步模型结果和工具产物；`stopAndContinueDoNotClaimSuccess` 与 codegen 编译纠错轨迹验证失败状态准确 |
 | A07 | 子 Agent 检查产物 | S14 `CodegenServiceTest.delegatesReadOnlyCodeReviewToSubAgent`：父有写权限，子仅获得 `view_file`，读取临时 Review.java 后父取得配对结果，文件未改；`SubAgentExecutionTest` 验证独立历史和用量不双算 |
 | A08 | 对话超压缩阈值 | 原始历史仍可查；下一请求使用摘要；工具交换完整 |
-| A09 | 会话正常关闭后重启 | 从数据库恢复用户、assistant、tool 及摘要，继续回答 |
-| A10 | 外部副作用后模拟落库失败 | 恢复识别不确定状态，不自动重复写入/执行命令 |
+| A09 | 会话正常关闭后重启 | `MybatisMysqlPersistenceTest` 验证 MySQL 上下文重建后的历史和运行记录；H2 历史回归继续验证摘要与后续回答 |
+| A10 | 外部副作用后模拟落库失败 | `MybatisMysqlPersistenceTest` 验证 MySQL 上结果未知的命令进入 `NEEDS_REVIEW`、结果已落库的工具可恢复；`JdbcPersistenceRecoveryTest` 保留故障窗口和计划步骤边界的确定性回归 |
 | A11 | 模型断流/任务取消/命令超时 | S04/S08 已验证模型和 Agent 终态；S12 验证命令超时、父取消与直接进程回收，并在允许进程枚举的本机环境验证取消和超时后的子进程回收；受限沙箱下只能保证直接进程清理 |
 | A12 | 两会话使用不同模型参数 | S09 `AgentSessionServiceTest` 验证不同 owner 会话的历史与温度参数隔离、单次覆盖及同会话 `SESSION_BUSY`；S07 双 modelId 回归继续通过 |
 | A13 | 同一任务分别接三协议 fixture | 上层循环无需修改，模型消息语义一致 |

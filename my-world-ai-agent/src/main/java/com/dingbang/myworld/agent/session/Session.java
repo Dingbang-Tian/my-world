@@ -72,4 +72,13 @@ public interface Session {
      * @return 正在执行时为 true
      */
     boolean isBusy();
+
+    /**
+     * 在外部副作用前确认当前运行仍持有会话租约。
+     *
+     * @throws IllegalStateException 租约已丢失时
+     */
+    default void requireActiveLease() {
+        if (!isBusy()) throw new IllegalStateException("SESSION_LEASE_LOST");
+    }
 }

@@ -6,6 +6,9 @@ import com.dingbang.myworld.agent.memory.ContextPolicy;
 import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
 import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
 import com.dingbang.myworld.agent.prompt.PromptRepository;
+import com.dingbang.myworld.agent.persistence.RunJournal;
+import com.dingbang.myworld.agent.session.InMemorySessionRepository;
+import com.dingbang.myworld.agent.session.SessionRepository;
 import com.dingbang.myworld.agent.runtime.DefaultAgentService;
 import com.dingbang.myworld.agent.skill.AgentSkill;
 import com.dingbang.myworld.agent.tool.Tool;
@@ -124,10 +127,37 @@ public final class CodegenFactory {
                                  Path workspace, boolean writeEnabled, boolean commandEnabled,
                                  List<String> environmentAllowlist, boolean planEnabled,
                                  boolean subAgentEnabled, ContextPolicy contextPolicy) {
+        return create(gateway, prompts, modelId, workspace, writeEnabled, commandEnabled,
+                environmentAllowlist, planEnabled, subAgentEnabled, contextPolicy,
+                new InMemorySessionRepository(), RunJournal.NONE);
+    }
+
+    /**
+     * 使用指定会话仓库和运行日志装配代码生成服务。
+     *
+     * @param gateway 单次模型入口
+     * @param prompts 提示词仓库
+     * @param modelId 可信模型标识
+     * @param workspace 工作目录
+     * @param writeEnabled 文件写入开关
+     * @param commandEnabled 命令开关
+     * @param environmentAllowlist 子进程环境白名单
+     * @param planEnabled 计划开关
+     * @param subAgentEnabled 子 Agent 开关
+     * @param contextPolicy 上下文策略
+     * @param sessions 会话仓库
+     * @param journal 运行日志
+     * @return 代码生成服务
+     */
+    public CodegenService create(ModelGateway gateway, PromptRepository prompts, String modelId,
+                                 Path workspace, boolean writeEnabled, boolean commandEnabled,
+                                 List<String> environmentAllowlist, boolean planEnabled,
+                                 boolean subAgentEnabled, ContextPolicy contextPolicy,
+                                 SessionRepository sessions, RunJournal journal) {
         /** 固定工作目录的路径策略。 */
         WorkspacePolicy policy = new WorkspacePolicy(workspace);
         /** 工作目录内的文件工具。 */
-        FileTools fileTools = new FileTools(policy);
+        FileTools fileTools = new FileTools(policy, journal);
         /** 完整文件工具集合。 */
         List<Tool<?>> all = fileTools.all();
         /** 只读或含写权限的工具集合。 */
@@ -177,7 +207,7 @@ public final class CodegenFactory {
                 List.of(), skillIds, AgentLimits.defaults(planEnabled || subAgentEnabled ? 24 : 8), contextPolicy);
         /** 运行与工具执行服务。 */
         DefaultAgentService agent = new DefaultAgentService(gateway, prompts, List.of(definition),
-                new ToolRegistry(selected), skills, ForkJoinPool.commonPool());
-        return new CodegenService(agent, fileTools, commandTool);
+                new ToolRegistry(selected), skills, ForkJoinPool.commonPool(), sessions, journal);
+        return new CodegenService(agent, fileTools, commandTool, journal);
     }
 }

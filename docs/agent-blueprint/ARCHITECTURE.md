@@ -224,7 +224,7 @@ SubAgentRunner 创建独立会话和 childRunId；任务说明和选定上下文
 
 必须区分：完整历史（事实记录）、本轮选取的上下文（实际发给模型）、摘要（有损压缩）、长期事实（后续扩展）。压缩不删除数据库原始消息。
 
-一次会话默认只允许一个顶层运行写入；第二个请求返回 SESSION_BUSY。初期内存锁；JDBC 阶段增加数据库持有者/租约与 version 校验，不能认为 JVM 锁能跨进程互斥。多实例完整容错仍是后续扩展，第一版部署以单实例为基线。
+一次会话默认只允许一个顶层运行写入；第二个请求返回 SESSION_BUSY。初期内存锁；MySQL 持久化阶段增加数据库持有者/租约与 version 校验，不能认为 JVM 锁能跨进程互斥。多实例完整容错仍是后续扩展，第一版部署以单实例为基线。
 
 | 建议表 | 关键字段与约束 |
 |---|---|
@@ -237,7 +237,7 @@ SubAgentRunner 创建独立会话和 childRunId；任务说明和选定上下文
 | agent_plan / agent_plan_step | plan 与 root/run 关联；step_index、状态、结果、失败原因；unique(plan_id, step_index) |
 | codegen_artifact | run_id、path、操作类型、before/after_hash、备份引用；不将整个文件无上限写入事件 |
 
-数据库层使用版本化迁移脚本。学习配置使用 H2 文件模式；测试使用独立临时数据库。JSON 可先存 CLOB/TEXT，不绑定生产数据库专有 JSON 查询。数据库实现放现有 agent 模块内；codegen 产物实现放 ai-app/codegen，不倒置依赖。
+数据库层使用版本化迁移脚本。运行时使用 MySQL 和 MyBatis-Plus Service/Mapper；真实数据库测试使用独立 MySQL 测试库，H2 旧实现仅供回归。JSON 存在 LONGTEXT，不绑定数据库专有 JSON 查询。数据库实现放现有 agent 模块内；codegen 产物实现放 ai-app/codegen，不倒置依赖。
 
 工具执行前保存意图，执行后保存结果及配对消息；网络等待、模型生成和外部进程不占长数据库事务。副作用已发生但结果尚未落库时，任务状态只能标为不确定，不能宣称“恰好一次执行”。恢复要识别这一窗口。
 
@@ -255,7 +255,7 @@ SubAgentRunner 创建独立会话和 childRunId；任务说明和选定上下文
 
 ## 12. 验证与完成证据
 
-默认测试：JUnit + scripted 模型 + 本地 HTTP/SSE fixtures + 临时文件目录 + H2。真实模型 smoke 另行启用；缺真实凭据不跳过离线验收，也不能宣称已验证真实供应商。
+默认测试：JUnit + scripted 模型 + 本地 HTTP/SSE fixtures + 临时文件目录；MySQL 集成测试由专用数据库连接环境变量启用，H2 仅保留旧持久化回归。真实模型 smoke 另行启用；缺真实凭据不跳过离线验收，也不能宣称已验证真实供应商。
 
 测试围绕行为边界：消息配对、流终态、超时、取消、会话隔离、提示词覆盖、工具副作用和恢复；不为每个 DTO getter 编写机械测试。每个协议适配器必须通过统一契约及自己的协议 fixture。
 

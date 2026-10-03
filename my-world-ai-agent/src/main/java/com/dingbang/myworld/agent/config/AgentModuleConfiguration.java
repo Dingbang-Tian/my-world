@@ -11,6 +11,6 @@ import org.springframework.context.annotation.Import;
  * @since 2026/10/01
  */
 @Configuration(proxyBeanMethods = false)
-@Import(AgentPromptConfiguration.class)
+@Import({AgentPromptConfiguration.class, AgentStorageConfiguration.class})
 public class AgentModuleConfiguration {
 }

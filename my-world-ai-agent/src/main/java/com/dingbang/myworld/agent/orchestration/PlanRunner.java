@@ -33,6 +33,47 @@ public final class PlanRunner {
     }
 
     /**
+     * 从数据库中确认完成的步骤状态恢复下一安全边界。
+     *
+     * @param plan 已校验计划定义
+     * @param restoredStatuses 按序保存的步骤状态
+     * @param restoredResults 已完成步骤结果
+     * @return 可继续执行的计划运行器
+     */
+    public static PlanRunner restore(Plan plan, List<PlanStepStatus> restoredStatuses,
+                                     List<String> restoredResults) {
+        Objects.requireNonNull(restoredStatuses, "步骤状态不能为 null");
+        Objects.requireNonNull(restoredResults, "步骤结果不能为 null");
+        if (restoredStatuses.size() != plan.getSteps().size()
+                || restoredResults.size() != plan.getSteps().size()) {
+            throw new IllegalArgumentException("恢复计划的步骤数量不匹配");
+        }
+        /** 待恢复的计划运行器。 */
+        PlanRunner runner = new PlanRunner(plan);
+        /** 是否已经遇到未执行步骤。 */
+        boolean pending = false;
+        for (int index = 0; index < restoredStatuses.size(); index++) {
+            /** 当前步骤状态。 */
+            PlanStepStatus status = restoredStatuses.get(index);
+            if (status == PlanStepStatus.RUNNING || (pending && status != PlanStepStatus.PENDING)) {
+                throw new IllegalArgumentException("计划未停在可恢复的步骤边界");
+            }
+            if (status == PlanStepStatus.PENDING) {
+                pending = true;
+            } else {
+                if (status != PlanStepStatus.SUCCEEDED && status != PlanStepStatus.FAILED
+                        && status != PlanStepStatus.SKIPPED) {
+                    throw new IllegalArgumentException("未知计划步骤状态");
+                }
+                runner.index = index;
+            }
+            runner.statuses.set(index, status);
+            runner.results.set(index, restoredResults.get(index));
+        }
+        return runner;
+    }
+
+    /**
      * 开始下一步骤。
      *
      * @return 当前步骤；没有后续步骤时为 null

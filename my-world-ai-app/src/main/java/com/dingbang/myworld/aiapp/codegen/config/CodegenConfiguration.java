@@ -2,6 +2,8 @@ package com.dingbang.myworld.aiapp.codegen.config;
 
 import com.dingbang.myworld.agent.prompt.PromptRepository;
 import com.dingbang.myworld.agent.memory.ContextPolicy;
+import com.dingbang.myworld.agent.persistence.RunJournal;
+import com.dingbang.myworld.agent.session.SessionRepository;
 import com.dingbang.myworld.aiapp.codegen.api.CodegenService;
 import com.dingbang.myworld.aiapp.codegen.application.CodegenFactory;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
@@ -27,12 +29,15 @@ public class CodegenConfiguration {
      * @param gateway 模型入口
      * @param prompts 提示词仓库
      * @param properties 代码生成配置
+     * @param sessions 会话仓库
+     * @param journal 运行日志
      * @return 应用服务
      */
     @Bean
     @ConditionalOnProperty(prefix = "my-world.codegen", name = "enabled", havingValue = "true")
     public CodegenService codegenService(ModelGateway gateway, PromptRepository prompts,
-                                         CodegenProperties properties) {
+                                         CodegenProperties properties, SessionRepository sessions,
+                                         RunJournal journal) {
         if (properties.getModelId() == null || properties.getModelId().isBlank()
                 || properties.getWorkspace() == null || properties.getWorkspace().isBlank()) {
             throw new IllegalArgumentException("启用 codegen 时必须配置 model-id 和 workspace");
@@ -47,6 +52,7 @@ public class CodegenConfiguration {
                 properties.getCommandEnvironmentAllowlist(), properties.isPlanEnabled(),
                 properties.isSubAgentEnabled(), new ContextPolicy(properties.getContextWindowTokens(),
                         properties.getSummaryTriggerRounds(), properties.getSummaryTriggerTokens(),
-                        properties.getReserveOutputTokens(), properties.getMaxSummaryTokens()));
+                        properties.getReserveOutputTokens(), properties.getMaxSummaryTokens()),
+                sessions, journal);
     }
 }

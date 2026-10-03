@@ -44,5 +44,7 @@ public enum AgentEventType {
     /** 用户取消运行。 */
     CANCELLED,
     /** 全局截止时间已到。 */
-    TIMED_OUT
+    TIMED_OUT,
+    /** 可能存在已发生但结果不确定的外部副作用。 */
+    NEEDS_REVIEW
 }
