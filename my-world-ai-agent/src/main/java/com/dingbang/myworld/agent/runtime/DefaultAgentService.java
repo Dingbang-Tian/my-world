@@ -7,9 +7,17 @@ import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.api.AgentService;
 import com.dingbang.myworld.agent.prompt.PromptRepository;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
+import com.dingbang.myworld.agent.session.AgentSessionService;
+import com.dingbang.myworld.agent.session.InMemorySessionRepository;
+import com.dingbang.myworld.agent.session.ImportedSession;
+import com.dingbang.myworld.agent.session.Session;
+import com.dingbang.myworld.agent.session.SessionExportCodec;
+import com.dingbang.myworld.agent.session.SessionRepository;
+import com.dingbang.myworld.agent.session.SessionSnapshot;
 import com.dingbang.myworld.agent.skill.AgentSkill;
 import com.dingbang.myworld.agent.tool.ToolRegistry;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
+import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.common.utils.collection.CollectionUtils;
 
@@ -22,7 +30,6 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 
 
@@ -32,7 +39,7 @@ import java.util.concurrent.Executor;
  * @author Sebastian
  * @since 2026/10/02
  */
-public final class DefaultAgentService implements AgentService {
+public final class DefaultAgentService implements AgentService, AgentSessionService {
 
     /**
      * 单次模型调用入口。
@@ -67,7 +74,10 @@ public final class DefaultAgentService implements AgentService {
     /**
      * 当前进程的会话历史。
      */
-    private final Map<String, InMemoryAgentSession> sessions = new ConcurrentHashMap<>();
+    private final SessionRepository sessions;
+
+    /** 会话 JSON 编解码器。 */
+    private final SessionExportCodec sessionCodec = new SessionExportCodec();
 
     /**
      * 创建不依赖具体模型供应商的 Agent 服务。
@@ -111,10 +121,28 @@ public final class DefaultAgentService implements AgentService {
     public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
                                Collection<AgentDefinition> definitions, ToolRegistry tools,
                                Collection<AgentSkill> skills, Executor executor) {
+        this(gateway, prompts, definitions, tools, skills, executor, new InMemorySessionRepository());
+    }
+
+    /**
+     * 创建使用可替换会话仓库的 Agent 服务。
+     *
+     * @param gateway 单次模型入口
+     * @param prompts 提示词仓库
+     * @param definitions 可信定义
+     * @param tools 可信工具全集
+     * @param skills 可用技能
+     * @param executor 后台执行器
+     * @param sessions 会话仓库
+     */
+    public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
+                               Collection<AgentDefinition> definitions, ToolRegistry tools,
+                               Collection<AgentSkill> skills, Executor executor, SessionRepository sessions) {
         this.gateway = Objects.requireNonNull(gateway, "模型入口不能为 null");
         this.prompts = Objects.requireNonNull(prompts, "提示词仓库不能为 null");
         this.executor = Objects.requireNonNull(executor, "模型执行器不能为 null");
         this.tools = Objects.requireNonNull(tools, "工具注册表不能为 null");
+        this.sessions = Objects.requireNonNull(sessions, "会话仓库不能为 null");
         Objects.requireNonNull(skills, "技能集合不能为 null");
         /** 技能索引。 */
         Map<String, AgentSkill> indexedSkills = new LinkedHashMap<>();
@@ -190,7 +218,8 @@ public final class DefaultAgentService implements AgentService {
         Message system = template.toSystemMessage(runId + ":system", variables);
 
         // 新会话在此登记；既有会话则校验它属于当前应用和 Agent。
-        InMemoryAgentSession session = sessionFor(request, sessionId);
+        /** 已校验归属的会话。 */
+        Session session = sessionFor(request, sessionId);
         return new DefaultAgentRun(runId, sessionId, definition, request, system, template, session, gateway,
                 selectedTools, executor);
     }
@@ -219,19 +248,124 @@ public final class DefaultAgentService implements AgentService {
      * @return 进程内会话
      * @throws IllegalArgumentException 既有会话未知或归属不符时
      */
-    private InMemoryAgentSession sessionFor(AgentRequest request, String sessionId) {
+    private Session sessionFor(AgentRequest request, String sessionId) {
         if (request.getSessionId() == null) {
-            // 请求未提供会话标识时，使用 prepare 已生成的标识创建内存会话。
-            InMemoryAgentSession session = new InMemoryAgentSession(request.getAppId(), request.getAgentId());
-            sessions.put(sessionId, session);
-            return session;
+            return sessions.create(sessionId, request.getOwnerId(), request.getAppId(),
+                    request.getAgentId(), ModelOptions.empty());
         }
         // 既有会话必须先存在，再检查其归属，不能只凭 sessionId 直接访问。
-        InMemoryAgentSession session = sessions.get(sessionId);
+        /** 仓库中的既有会话。 */
+        Session session = sessions.find(sessionId);
         if (session == null) {
             throw new IllegalArgumentException("未知的会话标识");
         }
-        session.requireOwner(request.getAppId(), request.getAgentId());
+        session.requireOwner(request.getOwnerId(), request.getAppId(), request.getAgentId());
+        return session;
+    }
+
+    /**
+     * 创建绑定到已注册 Agent 的空会话。
+     *
+     * @param ownerId 所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param options 会话级选项
+     * @return 新会话标识
+     */
+    @Override
+    public String createSession(String ownerId, String appId, String agentId, ModelOptions options) {
+        requireDefinition(appId, agentId);
+        if (ownerId == null || ownerId.isBlank()) throw new IllegalArgumentException("所有者不能为空");
+        /** 新会话标识。 */
+        String sessionId = UUID.randomUUID().toString();
+        sessions.create(sessionId, ownerId, appId, agentId, Objects.requireNonNull(options));
+        return sessionId;
+    }
+
+    /**
+     * 读取通过归属校验的完整历史。
+     *
+     * @param ownerId 所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param sessionId 会话标识
+     * @return 历史快照
+     */
+    @Override
+    public SessionSnapshot getSession(String ownerId, String appId, String agentId, String sessionId) {
+        return ownedSession(ownerId, appId, agentId, sessionId).snapshot();
+    }
+
+    /**
+     * 导出未运行的完整会话。
+     *
+     * @param ownerId 所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param sessionId 会话标识
+     * @return 带 schemaVersion 的 JSON
+     */
+    @Override
+    public String exportSession(String ownerId, String appId, String agentId, String sessionId) {
+        /** 已授权会话。 */
+        Session session = ownedSession(ownerId, appId, agentId, sessionId);
+        if (!session.tryStart()) throw new IllegalStateException("SESSION_BUSY");
+        try {
+            return sessionCodec.encode(sessionId, ownerId, appId, agentId, session.options(), session.snapshot());
+        } finally {
+            session.release();
+        }
+    }
+
+    /**
+     * 校验归属后将历史绑定到当前可信 Agent 定义。
+     *
+     * @param ownerId 所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param serialized 会话 JSON
+     * @return 恢复的会话标识
+     */
+    @Override
+    public String importSession(String ownerId, String appId, String agentId, String serialized) {
+        requireDefinition(appId, agentId);
+        /** 已验证格式与完整性的导入数据。 */
+        ImportedSession data = sessionCodec.decode(serialized);
+        if (!data.getOwnerId().equals(ownerId) || !data.getAppId().equals(appId)
+                || !data.getAgentId().equals(agentId)) {
+            throw new IllegalArgumentException("会话归属不匹配");
+        }
+        sessions.importSession(data.getSessionId(), ownerId, appId, agentId, data.getVersion(),
+                data.getOptions(), data.getMessages());
+        return data.getSessionId();
+    }
+
+    /**
+     * 获取并校验已注册的 Agent 定义。
+     *
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     */
+    private void requireDefinition(String appId, String agentId) {
+        if (!definitions.containsKey(appId) || !definitions.get(appId).containsKey(agentId)) {
+            throw new IllegalArgumentException("未知的应用或 Agent");
+        }
+    }
+
+    /**
+     * 读取已校验归属的会话。
+     *
+     * @param ownerId 所有者标识
+     * @param appId 应用标识
+     * @param agentId Agent 标识
+     * @param sessionId 会话标识
+     * @return 已授权会话
+     */
+    private Session ownedSession(String ownerId, String appId, String agentId, String sessionId) {
+        /** 仓库中的会话。 */
+        Session session = sessions.find(sessionId);
+        if (session == null) throw new IllegalArgumentException("未知的会话标识");
+        session.requireOwner(ownerId, appId, agentId);
         return session;
     }
 

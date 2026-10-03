@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/03（S08 已完成本地取消、超时与预算验证，等待学习复述）。
+最后更新：2026/10/03（S09 已完成本地会话与导出恢复验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S09；S08 的终态与取消问题等待用户复述；S07 及更早阶段的待回答问题仍保留。
-- 当前阶段已实现内容：S08 唯一运行终态、全局 deadline、模型与工具取消传播、模型回合/工具次数/输出字符预算、SSE 有界读取、有限事件回放与慢消费者错误；S07 单次 Chat 协议和既有工具循环继续保留。
-- 当前阻塞：无 S01 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；后续 Maven 命令需显式使用本机 JDK 21。
+- 下一阶段：S10；S09 的会话隔离与恢复问题等待用户复述；S08 及更早阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S09 可替换会话仓库、owner/app/Agent 隔离、独占运行与版本提交、会话级模型选项、完整历史查询、版本化文本/工具消息导出恢复；S08 取消与预算契约继续保留。
+- 当前阻塞：无 S09 实施阻塞。默认 JDK 8 无法构建 Java 21 项目；后续 Maven 命令需显式使用本机 JDK 21。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S08.md](notes/S08.md)。JDK 21 下全项目 55/55 测试通过，其中 S08 新增 10 个本地假模型/HTTP fixture 测试；未调用真实供应商。
+- 本次交付与证据：见 [notes/S09.md](notes/S09.md)。JDK 21 下全项目 58/58 测试通过，其中 S09 新增 3 个本地测试；未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -27,7 +27,7 @@
 | S06 | Agent 循环 | 已验证 | 待回答 | [notes/S06.md](notes/S06.md) |
 | S07 | Chat 协议 | 已验证 | 待回答 | [notes/S07.md](notes/S07.md) |
 | S08 | 流式、取消、预算 | 已验证 | 待回答 | [notes/S08.md](notes/S08.md) |
-| S09 | 会话与序列化 | 未开始 | 未开始 | — |
+| S09 | 会话与序列化 | 已验证 | 待回答 | [notes/S09.md](notes/S09.md) |
 | S10 | Codegen 与读取工具 | 未开始 | 未开始 | — |
 | S11 | 文件变更工具 | 未开始 | 未开始 | — |
 | S12 | 命令与生成闭环 | 未开始 | 未开始 | — |
@@ -77,6 +77,7 @@
 | 2026/10/02 | S06 在 `DefaultAgentRun` 内集中续问；模型请求只携带纯描述，工具执行前校验 callId 与回合上限 | `AgentToolLoopTest` 验证多调用配对、历史、参数纠错、重复标识与回合上限；全项目 clean test 通过 | S06–S08 | 已验证 |
 | 2026/10/03 | S07 以 JDK HttpClient 实现一次请求的 OpenAI Chat SSE 网关；Spring 应用只装配模型配置，工具执行仍由 Agent 负责 | 本地 HTTP fixture 覆盖分片、多工具索引、usage 尾块、HTTP 错误、断流、未知结束原因及实际 Agent 纠错闭环；全项目回归通过 | S07–S08 | 已验证 |
 | 2026/10/03 | S08 用可信 AgentLimits 限制全局时间、回合、工具和字符；状态锁裁定唯一终态，取消令牌贯通 Chat SSE 与工具 | 本地脚本模型、Java 工具、HTTP fixture 覆盖取消、超时、迟到错误、输出限额、事件缺口和 usage 去重；55/55 测试通过 | S08–S09/S12 | 已验证 |
+| 2026/10/03 | S09 将进程内会话移至可替换仓库；可信 owner/app/Agent 三重校验，独占执行和版本提交；导出只保留会话数据并在导入时重新绑定当前定义 | `AgentSessionServiceTest` 覆盖隔离、选项、导出恢复、工具配对、版本冲突、忙会话与取消；全项目 58/58 测试通过 | S09/S18 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -229,6 +230,23 @@
 待用户回答的问题：见 notes/S08.md；S07 和更早阶段待复述内容仍保留
 下一会话最先读取的文件：本 PROGRESS.md、notes/S08.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S09
 下一步具体动作：核对 S08 终态与取消问题后实施 S09
+```
+
+## 12B. S09 阶段交接
+
+```text
+阶段：S09 会话历史、隔离与导出恢复
+目标与已跑通流程：首轮完成 → 版本化完整历史 → 导出 JSON → 新服务绑定当前 AgentDefinition 并导入 → 第二轮追问
+已改文件（路径/核心方法）：agent/session 的 SessionRepository、InMemorySessionRepository、SessionExportCodec、AgentSessionService；AgentRequest.ownerId/modelOptions；DefaultAgentService 会话入口；DefaultAgentRun 历史快照、版本提交和会话选项
+新增依赖或配置：无新增 Maven 依赖；显式 ownerId 构造器供多用户应用使用，旧构造器继续以 appId 作为 ownerId
+验证命令、结果和环境：JDK 21 下 mvn -q -o clean test 成功，全项目 58/58；本地假模型和本地 HTTP fixture，未调用真实供应商
+对照 CHECKLIST 的条目及证据：F09/F11/F14、A12；AgentSessionServiceTest 3 个场景，S06 工具历史回归继续通过
+来源实现与新实现的差异：只序列化会话数据，不序列化模型客户端、线程、工具实例或凭据；导入重新使用当前可信定义与工具注册表
+未完成工作／真实阻塞：S18 数据库存储、S15 摘要及 S19 未知副作用恢复仍待后续阶段；真实供应商尚未冒烟，无 S10 实施阻塞
+本阶段用户已理解的内容：待回答；工程测试不等于学习掌握
+待用户回答的问题：见 notes/S09.md；S08 和更早阶段待复述内容仍保留
+下一会话最先读取的文件：本 PROGRESS.md、notes/S09.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S10
+下一步具体动作：实施 S10 代码生成应用与只读文件工具
 ```
 
 ## 13. 后续阶段交接模板

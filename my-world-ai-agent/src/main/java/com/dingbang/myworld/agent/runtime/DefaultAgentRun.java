@@ -10,6 +10,8 @@ import com.dingbang.myworld.agent.api.AgentResult;
 import com.dingbang.myworld.agent.api.AgentResultStatus;
 import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
+import com.dingbang.myworld.agent.session.Session;
+import com.dingbang.myworld.agent.session.SessionSnapshot;
 import com.dingbang.myworld.agent.tool.ToolDescriptor;
 import com.dingbang.myworld.agent.tool.ToolExecutionContext;
 import com.dingbang.myworld.agent.tool.ToolExecutionEvent;
@@ -73,7 +75,7 @@ final class DefaultAgentRun implements AgentRun {
     /** 固定的模板版本。 */
     private final PromptTemplateSnapshot template;
     /** 所属进程内会话。 */
-    private final InMemoryAgentSession session;
+    private final Session session;
     /** 单次模型入口。 */
     private final ModelGateway gateway;
     /** 运行级授权工具执行器。 */
@@ -108,6 +110,8 @@ final class DefaultAgentRun implements AgentRun {
     private List<Message> exchange;
     /** 模型下一回合需要的完整上下文。 */
     private List<Message> messages;
+    /** 本轮读取的历史版本。 */
+    private long sessionVersion;
     /** 全局截止时间。 */
     private Instant deadline;
     /** 可在任意终态撤销的超时任务。 */
@@ -129,7 +133,7 @@ final class DefaultAgentRun implements AgentRun {
      */
     DefaultAgentRun(String runId, String sessionId, AgentDefinition definition, AgentRequest request,
                     Message systemMessage, PromptTemplateSnapshot template,
-                    InMemoryAgentSession session, ModelGateway gateway, ToolRegistry tools, Executor executor) {
+                    Session session, ModelGateway gateway, ToolRegistry tools, Executor executor) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         this.definition = Objects.requireNonNull(definition, "Agent 定义不能为 null");
@@ -232,7 +236,10 @@ final class DefaultAgentRun implements AgentRun {
             synchronized (stateLock) {
                 messages = new ArrayList<>();
                 messages.add(systemMessage);
-                messages.addAll(session.getHistorySnapshot());
+                /** 历史和版本的同一快照。 */
+                SessionSnapshot snapshot = session.snapshot();
+                sessionVersion = snapshot.getVersion();
+                messages.addAll(snapshot.getMessages());
                 messages.add(user);
                 exchange = new ArrayList<>();
                 exchange.add(user);
@@ -275,7 +282,7 @@ final class DefaultAgentRun implements AgentRun {
                 return;
             }
             modelRequest = new ModelRequest(definition.getModelId(), messages, modelTools,
-                    ModelOptions.empty(), new ModelExecutionContext(deadline, cancellation,
+                    request.getModelOptions().overlay(session.options()), new ModelExecutionContext(deadline, cancellation,
                     definition.getLimits().getMaxOutputCharacters() - (int) outputCharacters));
         }
         try {
@@ -464,7 +471,12 @@ final class DefaultAgentRun implements AgentRun {
                 return;
             }
             exchange.add(assistant);
-            session.appendExchange(exchange);
+            try {
+                session.appendExchange(sessionVersion, exchange);
+            } catch (RuntimeException exception) {
+                fail("PERSISTENCE_ERROR", exception);
+                return;
+            }
             result = new AgentResult(runId, sessionId, request.getRequestId(), AgentResultStatus.COMPLETED,
                     finalText, reason, null, template.getTemplateId(), template.getContentHash(), usageTotal);
             terminal = true;

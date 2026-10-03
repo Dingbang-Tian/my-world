@@ -16,12 +16,12 @@
 | F06 | 工具异常反馈给模型，供模型修正 | ToolExecutor.handleToolError | ai-agent，S06 | S06 已验证参数失败为 `TOOL_VALIDATION_ERROR`、Java 工具不执行、模型据结果发出修正调用；其他异常的模型修正待扩展 |
 | F07 | Skill 工具分组、使用说明、去重 | agent/Skill、builtin/skill | agent + codegen，S06/S10 | `AgentSkill` 按 ID 聚合工具和说明；运行时去重并写入 SYSTEM；codegen 技能待 S10 |
 | F08 | 关闭技能与内置工具，作为普通客户端使用 | AgentClient.clearAllSkills、getAllTools | ai-agent，S06/S09 | 定义可使用空 skillIds/toolIds；S04 原无工具对话和 S06 未授权工具错误已验证；管理 API 待 S09 |
-| F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S06 成功运行将 USER/ASSISTANT/TOOL/ASSISTANT 原序列入进程内历史，下一次请求完整复用；持久化待 S18 |
+| F09 | 多轮完整历史含 assistant 与工具消息 | AgentClientSession.executeCommand | ai-agent，S09 | S09 `SessionRepository` 保存完整已完成交换及版本；`AgentSessionServiceTest` 验证查询与恢复，S06 工具历史回归通过；数据库持久化待 S18 |
 | F10 | Token/轮次触发摘要、摘要回注、压缩事件 | AgentClientSession.summarizeHistory* | ai-agent，S15 | 待完成 |
-| F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | 待完成 |
+| F11 | 会话导出和恢复、配置恢复 | AgentClientSession.serialization/fromSerialization | ai-agent，S09/S15 | S09 `AgentSessionService.exportSession/importSession` 含 schemaVersion、归属、历史和会话选项；导入重新绑定当前可信定义；摘要配置待 S15 |
 | F12 | 计划创建、步骤执行、进度和失败事件 | Plan、executePlanTool、AgentResultHandler | ai-agent，S13 | 待完成 |
 | F13 | 子 Agent 定义、独立会话、结果回传 | executeSubAgentTool、CreateSubAgentTool | ai-agent，S14 | 待完成 |
-| F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | S07 `ModelOptions` 支持实例默认值与单次请求覆盖，本地双 modelId 测试验证不污染共享配置；会话层选项待 S09 |
+| F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | S09 会话级 `ModelOptions` 与 `AgentRequest` 单次选项逐层覆盖；两会话及导入后覆盖由 `AgentSessionServiceTest` 验证；跨协议待 S16 |
 | F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai-framework，S07/S16 | S07 可传 `reasoning_effort`，解析 `reasoning_content` 增量并保留助手历史元数据；供应商特有 signature 与能力差异待 S16 |
 | F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | S07 解析 usage 尾块，发 `UsageReported`/Agent USAGE，完整回合与最终 AgentResult 保留并汇总已完成回合用量；父子去重与指标待 S14/S21 |
 | F17 | 可开关的请求与 SSE 调试信息 | LLMRequestDebugLogger | ai-framework，S07/S21 | 待完成 |
@@ -135,7 +135,7 @@ P1 表示完成本计划后优先考虑；P2 表示需求出现时再做。不�
 | A09 | 会话正常关闭后重启 | 从数据库恢复用户、assistant、tool 及摘要，继续回答 |
 | A10 | 外部副作用后模拟落库失败 | 恢复识别不确定状态，不自动重复写入/执行命令 |
 | A11 | 模型断流/任务取消/命令超时 | 唯一对应终态、Future 结束、后续工具未启动、资源回收；S04 本地模型错误已验证 FAILED 结果和 Future 完成，S08 已验证取消与全局超时；命令进程超时待 S12 |
-| A12 | 两会话使用不同模型参数 | S04 已验证同会话 `SESSION_BUSY`；S07 直接 ModelRequest 验证两 modelId 和调用级选项隔离；两会话选项与历史联动待 S09 |
+| A12 | 两会话使用不同模型参数 | S09 `AgentSessionServiceTest` 验证不同 owner 会话的历史与温度参数隔离、单次覆盖及同会话 `SESSION_BUSY`；S07 双 modelId 回归继续通过 |
 | A13 | 同一任务分别接三协议 fixture | 上层循环无需修改，模型消息语义一致 |
 | A14 | 两类 Embedding 输入 | 向量/索引/usage 正确，非法模型类型和媒体组合明确拒绝 |
 | A15 | 项目覆盖默认提示词并重启 | 本次请求使用新版本，代码无需改动，模板 hash 可追踪；S03 已验证覆盖优先级与快照，S04 已用本地假模型验证新建服务后的请求 SYSTEM 文本和结果 hash 随文件版本变化，真实进程重启待后续集成验证 |
