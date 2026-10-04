@@ -2,6 +2,11 @@ server:
   address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
 
+spring:
+  config:
+    # 开发环境启用 codegen 时自动加载自研 AI 框架的独立模型配置。
+    import: optional:classpath:application-codegen.yml
+
 my-world:
   ai:
     connectivity:

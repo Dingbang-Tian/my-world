@@ -16,12 +16,11 @@ my-world:
           model: ${MYWORLD_AGENT_MODEL:${DEEPSEEK_CHAT_MODEL:deepseek-flash}}
           # 自研框架自己的 API Key 配置。未单独提供时，开发验证可暂时复用 DEEPSEEK_API_KEY。
           # 生产环境建议设置 MYWORLD_AGENT_API_KEY，并与 DEEPSEEK_API_KEY 分开管理。
-          api-key: "${MYWORLD_AGENT_API_KEY:${DEEPSEEK_API_KEY:}}"
+          api-key: "${MYWORLD_AGENT_API_KEY:${DEEPSEEK_API_KEY:ENC(v1:frM4hvFmnCuDstCg51Yx-XocRXaW95LJEdc0eQ6YM5y2VFulDINkOZrtEULG25zaqSQBGm8rOavva9_1Xuvz)}}"
           temperature: ${MYWORLD_AGENT_TEMPERATURE:0.2}
           max-completion-tokens: ${MYWORLD_AGENT_MAX_COMPLETION_TOKENS:8192}
           image-enabled: false
           reasoning-enabled: false
-          thinking-enabled: false
 
   agent:
     # memory 不需要数据库即可运行；改成 mysql 后会自动执行 my-world-ai-agent 中的 Flyway 脚本。
