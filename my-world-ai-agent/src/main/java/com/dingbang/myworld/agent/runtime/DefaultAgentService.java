@@ -7,6 +7,8 @@ import com.dingbang.myworld.agent.persistence.RecoveryCheckpoint;
 import com.dingbang.myworld.agent.persistence.RecoveryRunRecord;
 
 import com.dingbang.myworld.agent.api.AgentDefinition;
+import com.dingbang.myworld.agent.memory.CalibratedTokenEstimator;
+import com.dingbang.myworld.agent.memory.TokenEstimator;
 import com.dingbang.myworld.agent.api.AgentRequest;
 import com.dingbang.myworld.agent.api.AgentRecoveryService;
 import com.dingbang.myworld.agent.api.AgentResult;
@@ -90,6 +92,8 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
      * 运行、事件和工具检查点记录器。
      */
     private final RunJournal journal;
+    /** 同一服务各次运行共享的输入用量校准器。 */
+    private final TokenEstimator tokenEstimator;
 
     /**
      * 会话 JSON 编解码器。
@@ -174,12 +178,34 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
                                Collection<AgentDefinition> definitions, ToolRegistry tools,
                                Collection<AgentSkill> skills, Executor executor, SessionRepository sessions,
                                RunJournal journal) {
+        this(gateway, prompts, definitions, tools, skills, executor, sessions, journal,
+                new CalibratedTokenEstimator());
+    }
+
+    /**
+     * 使用可插拔输入估算器组装公共 Agent 服务。
+     *
+     * @param gateway 单次模型入口
+     * @param prompts 提示词仓库
+     * @param definitions 可信 Agent 定义
+     * @param tools 可信工具全集
+     * @param skills 可用技能
+     * @param executor 后台执行器
+     * @param sessions 会话仓库
+     * @param journal 运行检查点记录器
+     * @param tokenEstimator 输入 token 估算器
+     */
+    public DefaultAgentService(ModelGateway gateway, PromptRepository prompts,
+                               Collection<AgentDefinition> definitions, ToolRegistry tools,
+                               Collection<AgentSkill> skills, Executor executor, SessionRepository sessions,
+                               RunJournal journal, TokenEstimator tokenEstimator) {
         this.gateway = SafeModelDebugGateway.whenEnabled(Objects.requireNonNull(gateway, "模型入口不能为 null"));
         this.prompts = Objects.requireNonNull(prompts, "提示词仓库不能为 null");
         this.executor = Objects.requireNonNull(executor, "模型执行器不能为 null");
         this.tools = Objects.requireNonNull(tools, "工具注册表不能为 null");
         this.sessions = Objects.requireNonNull(sessions, "会话仓库不能为 null");
         this.journal = Objects.requireNonNull(journal, "运行日志不能为 null");
+        this.tokenEstimator = Objects.requireNonNull(tokenEstimator, "输入估算器不能为 null");
         Objects.requireNonNull(skills, "技能集合不能为 null");
         // 技能索引。
         Map<String, AgentSkill> indexedSkills = new LinkedHashMap<>();
@@ -291,7 +317,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
         Session session = sessionFor(request, sessionId);
         return new DefaultAgentRun(runId, sessionId, definition, request, system, template, session, gateway,
                 selectedTools, planStepTemplate, subAgentTemplate, summaryTemplate, sessions, journal,
-                executor, 0, null, resumedFromRunId, recovery, planRecovery, null, runId);
+                executor, 0, null, resumedFromRunId, recovery, planRecovery, null, runId, tokenEstimator);
     }
 
     /**

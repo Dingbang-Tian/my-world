@@ -44,6 +44,45 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  */
 class ContextMemoryTest {
     /**
+     * 验证历史摘要只覆盖较早完整交换，并在后续任务中向前滑动。
+     */
+    @Test
+    void keepsRecentCompleteExchangesAfterRepeatedSummaries() {
+        /** 摘要调用返回短记忆的脚本模型。 */
+        ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) ->
+                complete(listener, isSummary(request.getMessages()) ? "旧任务摘要" : "回答", null));
+        /** 保存完整历史的会话仓库。 */
+        InMemorySessionRepository repository = new InMemorySessionRepository();
+        /** 最近两轮保持原文的策略。 */
+        ContextPolicy policy = new ContextPolicy(4096, 2, 3500, 128, 128, 2, 900);
+        /** 当前本地服务。 */
+        DefaultAgentService service = service(gateway, repository, policy);
+        /** 当前会话标识。 */
+        String id = service.createSession("owner", "app", "agent", ModelOptions.empty());
+        for (int index = 1; index <= 4; index++) {
+            assertThat(run(service, id, "任务" + index).getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
+        }
+        /** 已覆盖的历史消息数。 */
+        int covered = service.getSession("owner", "app", "agent", id)
+                .getSummary().getCoveredMessageCount();
+        assertThat(covered).isEqualTo(2);
+        /** 第四轮发给模型的消息。 */
+        List<Message> fourth = gateway.getRequests().get(gateway.getRequests().size() - 1).getMessages();
+        assertThat(fourth.stream().map(ContextMemoryTest::text).toList())
+                .contains("任务2", "任务3", "任务4")
+                .doesNotContain("任务1");
+        assertThat(run(service, id, "任务5").getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
+        assertThat(service.getSession("owner", "app", "agent", id)
+                .getSummary().getCoveredMessageCount()).isEqualTo(4);
+        /** 第五轮发给模型的消息。 */
+        List<Message> fifth = gateway.getRequests().get(gateway.getRequests().size() - 1).getMessages();
+        assertThat(fifth.stream().map(ContextMemoryTest::text).toList())
+                .contains("任务3", "任务4", "任务5")
+                .doesNotContain("任务2");
+        assertThat(service.getSession("owner", "app", "agent", id).getMessages()).hasSize(10);
+    }
+
+    /**
      * 验证轮次触发后保留原始历史、回注摘要、记录用量和导出恢复。
      *
      * @throws Exception 等待运行或事件失败时

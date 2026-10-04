@@ -4,6 +4,7 @@ import lombok.Getter;
 import lombok.Setter;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
+import java.nio.file.Path;
 import java.util.List;
 
 /**
@@ -60,6 +61,19 @@ public final class CodegenProperties {
      * 单次摘要最多允许的估算 token 数。
      */
     private int maxSummaryTokens = 1024;
+    /**
+     * 摘要后保留的最近完整会话轮数。
+     */
+    private int recentHistoryRounds = 3;
+    /**
+     * 最近完整会话的估算输入上限。
+     */
+    private int recentHistoryTokens = 16000;
+    /**
+     * 命令完整输出的本地持久化目录。
+     */
+    private String toolOutputDirectory = Path.of(System.getProperty("java.io.tmpdir"),
+            "my-world-codegen-tool-output").toString();
     /**
      * 命令进程可继承的环境变量名称。
      */

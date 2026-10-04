@@ -3,6 +3,8 @@ package com.dingbang.myworld.aiapp.codegen.application;
 import com.dingbang.myworld.agent.api.AgentDefinition;
 import com.dingbang.myworld.agent.api.AgentLimits;
 import com.dingbang.myworld.agent.memory.ContextPolicy;
+import com.dingbang.myworld.agent.memory.TokenEstimator;
+import com.dingbang.myworld.agent.memory.CalibratedTokenEstimator;
 import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
 import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
 import com.dingbang.myworld.agent.prompt.PromptRepository;
@@ -16,6 +18,8 @@ import com.dingbang.myworld.agent.tool.ToolRegistry;
 import com.dingbang.myworld.aiapp.codegen.api.CodegenService;
 import com.dingbang.myworld.aiapp.codegen.tool.FileTools;
 import com.dingbang.myworld.aiapp.codegen.tool.ExecuteCommandTool;
+import com.dingbang.myworld.aiapp.codegen.tool.LocalToolOutputStore;
+import com.dingbang.myworld.aiapp.codegen.tool.ReadToolOutputTool;
 import com.dingbang.myworld.aiapp.codegen.tool.WorkspacePolicy;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
 
@@ -154,6 +158,64 @@ public final class CodegenFactory {
                                  List<String> environmentAllowlist, boolean planEnabled,
                                  boolean subAgentEnabled, ContextPolicy contextPolicy,
                                  SessionRepository sessions, RunJournal journal) {
+        return create(gateway, prompts, modelId, workspace, writeEnabled, commandEnabled,
+                environmentAllowlist, planEnabled, subAgentEnabled, contextPolicy, sessions, journal,
+                Path.of(System.getProperty("java.io.tmpdir"), "my-world-codegen-tool-output"));
+    }
+
+    /**
+     * 使用明确的本地目录保存可分页回读的命令输出。
+     *
+     * @param gateway 单次模型入口
+     * @param prompts 提示词仓库
+     * @param modelId 可信模型标识
+     * @param workspace 可信工作目录
+     * @param writeEnabled 文件写入权限
+     * @param commandEnabled 命令执行权限
+     * @param environmentAllowlist 命令环境变量白名单
+     * @param planEnabled 计划权限
+     * @param subAgentEnabled 子 Agent 权限
+     * @param contextPolicy 上下文策略
+     * @param sessions 会话仓库
+     * @param journal 运行日志
+     * @param outputDirectory 外置命令输出目录
+     * @return 代码生成服务
+     */
+    public CodegenService create(ModelGateway gateway, PromptRepository prompts, String modelId,
+                                 Path workspace, boolean writeEnabled, boolean commandEnabled,
+                                 List<String> environmentAllowlist, boolean planEnabled,
+                                 boolean subAgentEnabled, ContextPolicy contextPolicy,
+                                 SessionRepository sessions, RunJournal journal, Path outputDirectory) {
+        return create(gateway, prompts, modelId, workspace, writeEnabled, commandEnabled,
+                environmentAllowlist, planEnabled, subAgentEnabled, contextPolicy, sessions, journal,
+                outputDirectory, new CalibratedTokenEstimator());
+    }
+
+    /**
+     * 同时注入可替换的输入估算器和外置命令日志目录。
+     *
+     * @param gateway 单次模型入口
+     * @param prompts 提示词仓库
+     * @param modelId 可信模型标识
+     * @param workspace 可信工作目录
+     * @param writeEnabled 文件写入权限
+     * @param commandEnabled 命令执行权限
+     * @param environmentAllowlist 命令环境变量白名单
+     * @param planEnabled 计划权限
+     * @param subAgentEnabled 子 Agent 权限
+     * @param contextPolicy 上下文策略
+     * @param sessions 会话仓库
+     * @param journal 运行日志
+     * @param outputDirectory 外置命令日志目录
+     * @param tokenEstimator 模型输入估算器
+     * @return 代码生成服务
+     */
+    public CodegenService create(ModelGateway gateway, PromptRepository prompts, String modelId,
+                                 Path workspace, boolean writeEnabled, boolean commandEnabled,
+                                 List<String> environmentAllowlist, boolean planEnabled,
+                                 boolean subAgentEnabled, ContextPolicy contextPolicy,
+                                 SessionRepository sessions, RunJournal journal, Path outputDirectory,
+                                 TokenEstimator tokenEstimator) {
         // 固定工作目录的路径策略。
         WorkspacePolicy policy = new WorkspacePolicy(workspace);
         // 工作目录内的文件工具。
@@ -165,8 +227,12 @@ public final class CodegenFactory {
         // 当前应用独占的命令工具。
         ExecuteCommandTool commandTool = null;
         if (commandEnabled) {
-            commandTool = new ExecuteCommandTool(policy, environmentAllowlist);
+            /** 命令与只读回查工具共享会话隔离的外置存储。 */
+            LocalToolOutputStore outputStore = new LocalToolOutputStore(outputDirectory);
+            commandTool = new ExecuteCommandTool(policy, environmentAllowlist,
+                    java.time.Duration.ofSeconds(60), outputStore);
             selected.add(commandTool);
+            selected.add(new ReadToolOutputTool(outputStore));
         }
         if (planEnabled) {
             selected.add(new CreatePlanTool());
@@ -187,7 +253,8 @@ public final class CodegenFactory {
         skills.add(new AgentSkill("codegen/files", fileInstructions, fileNames));
         if (commandEnabled) {
             skills.add(new AgentSkill("codegen/command",
-                    prompts.get("codegen/skills/command").getContent(), List.of("execute_command")));
+                    prompts.get("codegen/skills/command").getContent(),
+                    List.of("execute_command", "read_tool_output")));
         }
         if (planEnabled) {
             skills.add(new AgentSkill("codegen/plan", "复杂任务可使用 create_plan 创建顺序计划。"
@@ -207,7 +274,8 @@ public final class CodegenFactory {
                 List.of(), skillIds, AgentLimits.defaults(planEnabled || subAgentEnabled ? 24 : 8), contextPolicy);
         // 运行与工具执行服务。
         DefaultAgentService agent = new DefaultAgentService(gateway, prompts, List.of(definition),
-                new ToolRegistry(selected), skills, ForkJoinPool.commonPool(), sessions, journal);
+                new ToolRegistry(selected), skills, ForkJoinPool.commonPool(), sessions, journal,
+                tokenEstimator);
         return new CodegenService(agent, fileTools, commandTool, journal);
     }
 }

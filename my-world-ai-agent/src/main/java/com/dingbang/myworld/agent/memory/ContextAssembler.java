@@ -4,16 +4,13 @@ import com.dingbang.myworld.agent.session.SessionSnapshot;
 import com.dingbang.myworld.aiframework.api.ModelToolDefinition;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
-import com.dingbang.myworld.aiframework.model.ToolCall;
 import com.dingbang.myworld.aiframework.model.ToolResult;
-import com.dingbang.myworld.aiframework.model.content.ContentBlock;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
-import com.dingbang.myworld.aiframework.model.content.MediaContentBlock;
 
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * 按摘要覆盖位置组装上下文并保守估算模型输入大小。
@@ -22,10 +19,8 @@ import java.util.Map;
  * @since 2026/10/03
  */
 public final class ContextAssembler {
-    /**
-     * 每条消息的角色与协议结构估算开销。
-     */
-    private static final int MESSAGE_OVERHEAD = 16;
+    /** 可替换的输入大小估算器。 */
+    private final TokenEstimator estimator;
     /**
      * 第一次上下文压缩时保留的工具结果字符数。
      */
@@ -38,6 +33,22 @@ public final class ContextAssembler {
      * 常规压缩时保留的最新消息数量。
      */
     private static final int RECENT_MESSAGES = 6;
+
+    /**
+     * 使用字节估算和供应商用量校准。
+     */
+    public ContextAssembler() {
+        this(new CalibratedTokenEstimator());
+    }
+
+    /**
+     * 注入供应商专用或自定义估算器。
+     *
+     * @param estimator 模型输入大小估算器
+     */
+    public ContextAssembler(TokenEstimator estimator) {
+        this.estimator = Objects.requireNonNull(estimator, "输入估算器不能为空");
+    }
 
     /**
      * 将系统提示、摘要、未覆盖历史和本轮消息依次组装。
@@ -62,6 +73,46 @@ public final class ContextAssembler {
                 snapshot.getMessages().size()));
         result.addAll(current);
         return result;
+    }
+
+    /**
+     * 计算本次应摘要到的历史边界，剩余部分保留完整交换。
+     *
+     * @param snapshot 完整历史快照
+     * @param policy 可信上下文策略
+     * @return 摘要终点的消息索引，不拆分任何用户交换
+     */
+    public int summaryEnd(SessionSnapshot snapshot, ContextPolicy policy) {
+        return summaryEnd(snapshot, policy, policy.getRecentHistoryTokens());
+    }
+
+    /**
+     * 结合本轮输入的剩余容量选择最近完整交换窗口。
+     *
+     * @param snapshot 完整历史快照
+     * @param policy 可信上下文策略
+     * @param availableRecentTokens 当前模型请求可留给近期历史的估算容量
+     * @return 摘要终点的消息索引
+     */
+    public int summaryEnd(SessionSnapshot snapshot, ContextPolicy policy, int availableRecentTokens) {
+        /** 已有摘要覆盖的终点。 */
+        int covered = snapshot.getSummary() == null ? 0 : snapshot.getSummary().getCoveredMessageCount();
+        /** 配置关闭最近窗口时全部未覆盖历史都可进入摘要。 */
+        if (policy.getRecentHistoryRounds() == 0) return snapshot.getMessages().size();
+        /** 当前准备保留的历史起点。 */
+        int retainedStart = snapshot.getMessages().size();
+        /** 已纳入窗口的完整交换数量。 */
+        int retainedRounds = 0;
+        /** 从后向前仅在用户消息边界选择完整交换。 */
+        for (int index = snapshot.getMessages().size() - 1; index >= covered; index--) {
+            if (snapshot.getMessages().get(index).getRole() != Role.USER) continue;
+            if (retainedRounds >= policy.getRecentHistoryRounds()
+                    || estimate(snapshot.getMessages().subList(index, snapshot.getMessages().size()), List.of())
+                    > Math.min(policy.getRecentHistoryTokens(), Math.max(0, availableRecentTokens))) break;
+            retainedStart = index;
+            retainedRounds++;
+        }
+        return retainedStart;
     }
 
     /**
@@ -175,52 +226,16 @@ public final class ContextAssembler {
      * @return 保守估算 token 数
      */
     public int estimate(List<Message> messages, List<ModelToolDefinition> tools) {
-        // 消息、工具及协议开销的累计估算。
-        long total = 0;
-        // 当前待估算的模型消息。
-        for (Message message : messages) {
-            total += MESSAGE_OVERHEAD + bytes(message.getRole().name());
-            // 当前消息的文本内容块。
-            for (ContentBlock block : message.getContentBlocks()) {
-                if (block instanceof TextContentBlock text) {
-                    total += bytes(text.getText());
-                } else if (block instanceof MediaContentBlock media) {
-                    total += MESSAGE_OVERHEAD + bytes(media.getMimeType()) + bytes(media.getName())
-                            + (media.getBytes() == null ? bytes(media.getUrl().toString()) + 1024
-                            : (long) media.getBytes().length * 2L);
-                } else {
-                    throw new IllegalArgumentException("上下文包含未知内容块");
-                }
-            }
-            // 当前助手发出的工具调用。
-            for (ToolCall call : message.getToolCalls()) {
-                total += MESSAGE_OVERHEAD + bytes(call.getCallId()) + bytes(call.getName())
-                        + bytes(call.getArgumentsJson());
-            }
-            // 当前工具执行结果。
-            for (ToolResult result : message.getToolResults()) {
-                total += MESSAGE_OVERHEAD + bytes(result.getCallId()) + bytes(result.getContent());
-            }
-            // 当前协议元数据。
-            for (Map.Entry<String, String> entry : message.getProviderMetadata().entrySet()) {
-                total += bytes(entry.getKey()) + bytes(entry.getValue());
-            }
-        }
-        // 当前模型可见的工具定义。
-        for (ModelToolDefinition tool : tools) {
-            total += MESSAGE_OVERHEAD + bytes(tool.getName()) + bytes(tool.getDescription())
-                    + bytes(tool.getParameterSchemaJson());
-        }
-        return total > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) total;
+        return estimator.estimate(messages, tools);
     }
 
     /**
-     * 返回文本所占 UTF-8 字节数。
+     * 采纳供应商返回的单次真实输入用量，供后续调用校准。
      *
-     * @param text 待估算文本
-     * @return 字节数，null 为零
+     * @param estimatedTokens 本次请求发出前的估算值
+     * @param promptTokens 供应商报告的输入 token 数
      */
-    private static int bytes(String text) {
-        return text == null ? 0 : text.getBytes(StandardCharsets.UTF_8).length;
+    public void observe(int estimatedTokens, long promptTokens) {
+        estimator.observe(estimatedTokens, promptTokens);
     }
 }

@@ -5,7 +5,7 @@ import lombok.Value;
 import java.util.Objects;
 
 /**
- * 记录一次命令工具的执行目录、退出状态和有界输出。
+ * 记录一次命令工具的执行目录、退出状态和有界首尾预览。
  *
  * @author Sebastian
  * @since 2026/10/03
@@ -44,7 +44,7 @@ public class CommandReport {
     Integer exitCode;
 
     /**
-     * 有界合并输出。
+     * 首尾合并预览，完整输出由 outputId 在会话工具结果中定位。
      */
     String output;
 
@@ -61,7 +61,7 @@ public class CommandReport {
      * @param shell 实际使用的 shell
      * @param status COMPLETED、TIMED_OUT 或 CANCELLED
      * @param exitCode 正常完成时的退出码，其余情况为 null
-     * @param output 最多保留 16000 字节的合并输出
+     * @param output 最多保留约 4096 字节的首尾预览
      * @param truncated 输出是否截断
      */
     public CommandReport(String runId, String command, String cwd, String shell, String status,

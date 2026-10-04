@@ -9,10 +9,12 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,9 +47,9 @@ class ExecuteCommandToolTest {
         ExecuteCommandTool tool = new ExecuteCommandTool(new WorkspacePolicy(workspace), List.of());
         assertThat(run(tool, "pwd", "nested").getContent()).contains("exitCode=0", "nested");
         assertThat(run(tool, "exit 7", "").getContent()).contains("exitCode=7");
-        assertThat(run(tool, ":", "").getContent()).isEqualTo("timedOut=false\nexitCode=0\n");
+        assertThat(run(tool, ":", "").getContent()).contains("timedOut=false\nexitCode=0\n", "outputId=");
         assertThat(run(tool, "printf '%s' \"$HOME\"", "").getContent())
-                .isEqualTo("timedOut=false\nexitCode=0\n");
+                .contains("timedOut=false\nexitCode=0\n", "outputId=");
         assertThatThrownBy(() -> run(tool, "pwd", "../"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("超出工作目录");
         assertThat(ExecuteCommandTool.shellCommand("auto", "pwd")).containsExactly("/bin/bash", "-c", "pwd");
@@ -69,6 +71,67 @@ class ExecuteCommandToolTest {
         assertThat(result.getContent()).contains("exitCode=0");
         assertThat(result.isTruncated()).isTrue();
         assertThat(result.getContent().length()).isLessThan(16_100);
+    }
+
+    /**
+     * 验证大输出保存到外部文件、模型只收有界预览，并禁止其他会话回读。
+     *
+     * @throws Exception 本地输出写入或读取失败时
+     */
+    @Test
+    void archivesLargeOutputAndReadsItBySession() throws Exception {
+        unixOnly();
+        /** 与测试目录隔离的外置输出存储。 */
+        LocalToolOutputStore store = new LocalToolOutputStore(workspace.resolve("archive"));
+        /** 输出日志流式落盘的命令工具。 */
+        ExecuteCommandTool tool = new ExecuteCommandTool(new WorkspacePolicy(workspace), List.of(),
+                Duration.ofSeconds(60), store);
+        /** 产生超过模型预览长度的命令结果。 */
+        ToolExecutionResult result = run(tool, "printf '%20000s' x", "");
+        assertThat(result.getContent()).contains("outputId=", "archiveTruncated=false", "exitCode=0");
+        assertThat(result.getContent().length()).isLessThan(5000);
+        /** 从模型可见结果提取的不可猜测输出标识。 */
+        var match = Pattern.compile("outputId=([0-9a-f-]{36})").matcher(result.getContent());
+        assertThat(match.find()).isTrue();
+        /** 同一会话可分页读取全部 20000 字节。 */
+        LocalToolOutputStore.Chunk first = store.read("session", match.group(1), 0, 4096);
+        assertThat(first.nextOffset()).isEqualTo(4096);
+        assertThat(first.storedBytes()).isEqualTo(20000);
+        assertThat(store.read("session", match.group(1), 19999, 4096).text()).isEqualTo("x");
+        assertThat(new LocalToolOutputStore(workspace.resolve("archive"))
+                .read("session", match.group(1), 19999, 4096).text()).isEqualTo("x");
+        assertThatThrownBy(() -> store.read("other-session", match.group(1), 0, 4096))
+                .isInstanceOf(IllegalArgumentException.class);
+        /** 模型可用回读工具也按会话隔离。 */
+        ReadToolOutputArgs args = new ReadToolOutputArgs();
+        args.outputId = match.group(1);
+        assertThat(new ReadToolOutputTool(store).execute(args,
+                new ToolExecutionContext("run", "session", null, null)).getContent())
+                .contains("nextOffset=4096");
+    }
+
+    /**
+     * 验证中文日志分页边界不会把一个 UTF-8 字符拆成两页。
+     *
+     * @throws Exception 本地读写失败时
+     */
+    @Test
+    void readsUtf8OutputAtCharacterBoundaries() throws Exception {
+        /** 当前测试专用输出存储。 */
+        LocalToolOutputStore store = new LocalToolOutputStore(workspace.resolve("utf8-archive"));
+        /** 当前会话的输出写入流。 */
+        LocalToolOutputStore.Writer writer = store.create("session");
+        /** 此次输出标识。 */
+        String id = writer.outputId();
+        try (writer) {
+            writer.write("中文测试".getBytes(StandardCharsets.UTF_8));
+        }
+        /** 第一页在 4 字节请求下只返回一个完整汉字。 */
+        LocalToolOutputStore.Chunk first = store.read("session", id, 0, 4);
+        assertThat(first.text()).isEqualTo("中");
+        assertThat(first.nextOffset()).isEqualTo(3);
+        /** 从正确偏移继续读取下一个完整字符。 */
+        assertThat(store.read("session", id, first.nextOffset(), 4).text()).isEqualTo("文");
     }
 
     /**

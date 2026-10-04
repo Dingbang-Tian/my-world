@@ -1,1 +1,1 @@
-命令技能：execute_command 只用于当前任务必要的构建、测试和版本检查；不要用 cat、sed、awk、grep 等命令替代文件工具读取内容。结果包含 timedOut、exitCode 和可能截断的输出；只根据真实退出码判断验证结果。命令最多运行 60 秒，失败后最多针对原因重试一次。
+命令技能：execute_command 只用于当前任务必要的构建、测试和版本检查。返回真实 timedOut、exitCode、精简的首尾预览及 outputId；中间日志需用 read_tool_output(outputId, offset, limit) 分页读取，单页最多 8192 字节。不要用 cat、sed、awk、grep 等命令替代文件工具读取内容。只根据真实退出码判断验证结果。命令最多运行 60 秒，失败后最多针对原因重试一次。

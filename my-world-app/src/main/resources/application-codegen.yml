@@ -51,6 +51,10 @@ my-world:
     summary-trigger-tokens: ${MYWORLD_CODEGEN_SUMMARY_TRIGGER_TOKENS:65536}
     reserve-output-tokens: ${MYWORLD_CODEGEN_RESERVE_OUTPUT_TOKENS:4096}
     max-summary-tokens: ${MYWORLD_CODEGEN_MAX_SUMMARY_TOKENS:1024}
+    recent-history-rounds: ${MYWORLD_CODEGEN_RECENT_HISTORY_ROUNDS:3}
+    recent-history-tokens: ${MYWORLD_CODEGEN_RECENT_HISTORY_TOKENS:16000}
+    # 生产环境请配置持久化目录，并自行设置文件保留与清理策略。
+    tool-output-directory: "${MYWORLD_CODEGEN_TOOL_OUTPUT_DIRECTORY:${java.io.tmpdir}/my-world-codegen-tool-output}"
     command-environment-allowlist:
       - PATH
       - JAVA_HOME

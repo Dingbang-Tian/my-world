@@ -19,6 +19,7 @@ import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.memory.ContextAssembler;
 import com.dingbang.myworld.agent.memory.ContextPolicy;
 import com.dingbang.myworld.agent.memory.MemorySummary;
+import com.dingbang.myworld.agent.memory.TokenEstimator;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
 import com.dingbang.myworld.agent.persistence.RunJournal;
 import com.dingbang.myworld.agent.orchestration.Plan;
@@ -141,7 +142,9 @@ final class DefaultAgentRun implements AgentRun {
     /**
      * 上下文组装和输入大小估算器。
      */
-    private final ContextAssembler contextAssembler = new ContextAssembler();
+    private final ContextAssembler contextAssembler;
+    /** 与同一服务内其他运行共享的输入校准器。 */
+    private final TokenEstimator tokenEstimator;
     /**
      * 创建独立子会话所用的可信仓库。
      */
@@ -250,6 +253,8 @@ final class DefaultAgentRun implements AgentRun {
      * 当前运行中已发出的摘要模型请求数。
      */
     private int summaryCalls;
+    /** 最近一次普通模型请求的发送前输入估算值。 */
+    private int sentInputEstimate;
     /**
      * 正在构造的本轮交换。
      */
@@ -340,6 +345,7 @@ final class DefaultAgentRun implements AgentRun {
      * @param planRecovery 已完成步骤的计划状态，可为 null
      * @param parentRunId 父运行标识，可为 null
      * @param rootRunId 根运行标识
+     * @param tokenEstimator 服务级输入估算与校准器
      */
     DefaultAgentRun(String runId, String sessionId, AgentDefinition definition, AgentRequest request,
                     Message systemMessage, PromptTemplateSnapshot template,
@@ -348,7 +354,8 @@ final class DefaultAgentRun implements AgentRun {
                     PromptTemplateSnapshot summaryTemplate, SessionRepository sessions,
                     RunJournal journal, Executor executor, int depth, Instant inheritedDeadline,
                     String resumedFromRunId, RecoveryCheckpoint recovery,
-                    PlanRecovery planRecovery, String parentRunId, String rootRunId) {
+                    PlanRecovery planRecovery, String parentRunId, String rootRunId,
+                    TokenEstimator tokenEstimator) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         this.definition = Objects.requireNonNull(definition, "Agent 定义不能为 null");
@@ -369,6 +376,8 @@ final class DefaultAgentRun implements AgentRun {
         this.planRecovery = planRecovery;
         this.parentRunId = parentRunId;
         this.rootRunId = Objects.requireNonNull(rootRunId, "根运行标识不能为 null");
+        this.tokenEstimator = Objects.requireNonNull(tokenEstimator, "输入估算器不能为 null");
+        this.contextAssembler = new ContextAssembler(tokenEstimator);
         this.audit = new RunAuditInterceptor(rootRunId, runId, sessionId, parentRunId);
         this.depth = depth;
         this.inheritedDeadline = inheritedDeadline;
@@ -588,7 +597,8 @@ final class DefaultAgentRun implements AgentRun {
                 }
                 modelRequest = new ModelRequest(definition.getModelId(), messages, visibleTools,
                         request.getModelOptions().overlay(session.options()), new ModelExecutionContext(deadline, cancellation,
-                        definition.getLimits().getMaxOutputCharacters() - (int) outputCharacters));
+                                definition.getLimits().getMaxOutputCharacters() - (int) outputCharacters));
+                sentInputEstimate = estimatedContext;
             }
         } catch (ExecutionControlException exception) {
             stopForControl(exception);
@@ -620,15 +630,22 @@ final class DefaultAgentRun implements AgentRun {
                 && estimated <= inputCapacity())) {
             return;
         }
+        /** 根据本轮输入及摘要预留计算近期历史的可用容量。 */
+        int recentCapacity = Math.max(0, inputCapacity()
+                - contextAssembler.estimate(List.of(systemMessage, exchange.get(0)), modelTools)
+                - policy.getMaxSummaryTokens() * 2);
+        /** 摘要只覆盖最近完整交换窗口之前的历史。 */
+        int summaryEnd = contextAssembler.summaryEnd(snapshot, policy, recentCapacity);
+        if (summaryEnd == covered) return;
         // 待原子提交的逐块摘要，失败时不会覆盖原始历史。
         MemorySummary working = snapshot.getSummary();
-        while (covered < snapshot.getMessages().size()) {
+        while (covered < summaryEnd) {
             new ModelExecutionContext(deadline, cancellation, 1).checkActive();
             // 在摘要请求窗口内可容纳的最大完整交换末尾。
             int selectedEnd = covered;
             // 当前候选的完整交换结束位置。
-            for (int index = covered + 1; index <= snapshot.getMessages().size(); index++) {
-                if (index < snapshot.getMessages().size()
+            for (int index = covered + 1; index <= summaryEnd; index++) {
+                if (index < summaryEnd
                         && snapshot.getMessages().get(index).getRole() != Role.USER) continue;
                 // 候选摘要请求。
                 Message candidate = summaryPrompt(working, snapshot.getMessages().subList(covered, index));
@@ -728,6 +745,8 @@ final class DefaultAgentRun implements AgentRun {
         ModelRequest summaryRequest = new ModelRequest(definition.getModelId(), List.of(prompt), List.of(),
                 new ModelOptions(0.0, definition.getContextPolicy().getMaxSummaryTokens(), null),
                 new ModelExecutionContext(deadline, cancellation, remainingCharacters));
+        /** 摘要请求的输入估算值，用于供应商用量校准。 */
+        int summaryInputEstimate = contextAssembler.estimate(List.of(prompt), List.of());
         // 完成后才交付摘要文本的监听器。
         ModelEventListener listener = new ValidatingModelEventListener(new SummaryModelListener(completed));
         // 摘要线程的取消注册动作。
@@ -754,6 +773,7 @@ final class DefaultAgentRun implements AgentRun {
                     throw new ExecutionControlException("LIMIT_EXCEEDED", "摘要输出超过字符预算");
                 }
                 if (turn.getUsage() != null && usageByModelCallId.putIfAbsent(callId, turn.getUsage()) == null) {
+                    contextAssembler.observe(summaryInputEstimate, turn.getUsage().getPromptTokens());
                     usageTotal = usageTotal == null ? turn.getUsage() : usageTotal.plus(turn.getUsage());
                     audit.usage(callId, turn.getUsage());
                     emitLocked(AgentEventType.USAGE, null, null, null, turn.getUsage());
@@ -859,6 +879,7 @@ final class DefaultAgentRun implements AgentRun {
                     // 模型调用标识在父子运行树内唯一，用于去重汇总 usage。
                     String modelCallId = runId + ":model:" + turnNumber;
                     if (usageByModelCallId.putIfAbsent(modelCallId, turn.getUsage()) == null) {
+                        contextAssembler.observe(sentInputEstimate, turn.getUsage().getPromptTokens());
                         usageTotal = usageTotal == null ? turn.getUsage() : usageTotal.plus(turn.getUsage());
                         audit.usage(modelCallId, turn.getUsage());
                         emitLocked(AgentEventType.USAGE, null, null, null, turn.getUsage());
@@ -1098,7 +1119,7 @@ final class DefaultAgentRun implements AgentRun {
                     childTools.getAuthorizedTool("create_plan") == null ? null : planStepTemplate,
                     childTools.getAuthorizedTool("create_sub_agent") == null ? null : subAgentTemplate,
                     summaryTemplate, sessions, journal, executor, depth + 1, deadline,
-                    null, null, null, runId, rootRunId);
+                    null, null, null, runId, rootRunId, tokenEstimator);
             emitToolEvent(new ToolExecutionEvent(call.getCallId(), call.getName(),
                     ToolExecutionPhase.CALLING, null));
             // 子级在父取消时终止，完成回调再续接父级模型。

@@ -49,6 +49,8 @@ public final class ExecuteCommandTool implements Tool<ExecuteCommandArgs>, PlanS
      * 本实例允许的最长执行时间。
      */
     private final Duration maxDuration;
+    /** 本次应用共享的本地日志存储。 */
+    private final LocalToolOutputStore outputStore;
     /**
      * 按运行标识保存命令执行报告。
      */
@@ -71,7 +73,8 @@ public final class ExecuteCommandTool implements Tool<ExecuteCommandArgs>, PlanS
      * @param environmentAllowlist 允许传给子进程的变量名称
      */
     public ExecuteCommandTool(WorkspacePolicy policy, List<String> environmentAllowlist) {
-        this(policy, environmentAllowlist, MAX_DURATION);
+        this(policy, environmentAllowlist, MAX_DURATION,
+                new LocalToolOutputStore(Path.of(System.getProperty("java.io.tmpdir"), "my-world-codegen-tool-output")));
     }
 
     /**
@@ -82,9 +85,24 @@ public final class ExecuteCommandTool implements Tool<ExecuteCommandArgs>, PlanS
      * @param maxDuration 命令时限，不得超过生产上限
      */
     ExecuteCommandTool(WorkspacePolicy policy, List<String> environmentAllowlist, Duration maxDuration) {
+        this(policy, environmentAllowlist, maxDuration,
+                new LocalToolOutputStore(Path.of(System.getProperty("java.io.tmpdir"), "my-world-codegen-tool-output")));
+    }
+
+    /**
+     * 创建可替换存储目录的命令工具。
+     *
+     * @param policy 工作目录策略
+     * @param environmentAllowlist 子进程环境白名单
+     * @param maxDuration 最大命令执行时间
+     * @param outputStore 外置日志存储
+     */
+    public ExecuteCommandTool(WorkspacePolicy policy, List<String> environmentAllowlist,
+                              Duration maxDuration, LocalToolOutputStore outputStore) {
         this.policy = Objects.requireNonNull(policy, "工作目录策略不能为空");
         this.environmentAllowlist = List.copyOf(Objects.requireNonNull(environmentAllowlist, "环境白名单不能为空"));
         this.maxDuration = Objects.requireNonNull(maxDuration, "命令时限不能为空");
+        this.outputStore = Objects.requireNonNull(outputStore, "输出存储不能为空");
         if (maxDuration.isZero() || maxDuration.isNegative() || maxDuration.compareTo(MAX_DURATION) > 0) {
             throw new IllegalArgumentException("命令时限必须大于零且不超过 60 秒");
         }
@@ -182,8 +200,16 @@ public final class ExecuteCommandTool implements Tool<ExecuteCommandArgs>, PlanS
             destroyTree(process);
             throw new IllegalArgumentException("命令输入流关闭失败: " + exception.getMessage(), exception);
         }
+        /** 为本次执行创建会话隔离的持久化日志。 */
+        LocalToolOutputStore.Writer outputWriter;
+        try {
+            outputWriter = outputStore.create(context.getSessionId());
+        } catch (IOException exception) {
+            destroyTree(process);
+            throw new IllegalStateException("命令日志存储创建失败", exception);
+        }
         // 并发读取的有界输出。
-        CommandOutputCapture capture = new CommandOutputCapture(process.getInputStream());
+        CommandOutputCapture capture = new CommandOutputCapture(process.getInputStream(), outputWriter);
         // 不阻塞调用方终止的读取线程。
         Thread reader = new Thread(capture, "codegen-command-output");
         reader.setDaemon(true);
@@ -195,16 +221,25 @@ public final class ExecuteCommandTool implements Tool<ExecuteCommandArgs>, PlanS
                 context.checkActive();
                 if (!Instant.now().isBefore(deadline)) {
                     destroyTree(process);
+                    reader.join(5000);
+                    if (reader.isAlive()) {
+                        throw new IllegalStateException("命令超时后输出归档尚未结束");
+                    }
                     record(context, args.command, cwd, invocation.get(0), "TIMED_OUT", null, capture);
-                    return new ToolExecutionResult("timedOut=true\nexitCode=unavailable\n" + capture.text(), capture.truncated());
+                    return new ToolExecutionResult("timedOut=true\nexitCode=unavailable\n"
+                            + capture.reference() + capture.text(), capture.truncated());
                 }
                 if (process.waitFor(50, TimeUnit.MILLISECONDS)) {
                     context.checkActive();
-                    reader.join(1000);
+                    reader.join(5000);
+                    if (reader.isAlive()) {
+                        throw new IllegalStateException("命令输出归档尚未结束");
+                    }
                     // 完成时退出码。
                     int exitCode = process.exitValue();
                     record(context, args.command, cwd, invocation.get(0), "COMPLETED", exitCode, capture);
-                    return new ToolExecutionResult("timedOut=false\nexitCode=" + exitCode + "\n" + capture.text(),
+                    return new ToolExecutionResult("timedOut=false\nexitCode=" + exitCode + "\n"
+                            + capture.reference() + capture.text(),
                             capture.truncated());
                 }
             }
@@ -218,6 +253,9 @@ public final class ExecuteCommandTool implements Tool<ExecuteCommandArgs>, PlanS
             record(context, args.command, cwd, invocation.get(0),
                     "TIMEOUT".equals(exception.getCode()) ? "TIMED_OUT" : "CANCELLED", null, capture);
             throw exception;
+        } catch (IOException exception) {
+            destroyTree(process);
+            throw new IllegalStateException("命令日志存储失败", exception);
         } finally {
             unregister.run();
             if (process.isAlive()) {
