@@ -567,7 +567,22 @@ final class DefaultAgentRun implements AgentRun {
                 // 计划步骤不得递归创建计划，但仍可使用其他已授权工具。
                 List<ModelToolDefinition> visibleTools = planRunner == null ? modelTools
                         : modelTools.stream().filter(tool -> !tool.getName().equals("create_plan")).toList();
-                if (contextAssembler.estimate(messages, visibleTools) > inputCapacity()) {
+                /** 当前模型请求的输入估算值。 */
+                int estimatedContext = contextAssembler.estimate(messages, visibleTools);
+                /** 当前模型请求可使用的输入容量。 */
+                int contextCapacity = inputCapacity();
+                /** 触发运行中轻量压缩的阈值。 */
+                int compactionThreshold = Math.min(definition.getContextPolicy().getTriggerTokens(),
+                        (int) ((long) contextCapacity * 3 / 4));
+                if (contextCapacity > 0 && estimatedContext > compactionThreshold) {
+                    messages = contextAssembler.compact(messages, visibleTools,
+                            Math.max(1, (int) ((long) compactionThreshold * 4 / 5)));
+                    /** 压缩后的模型请求输入估算值。 */
+                    int compactedContext = contextAssembler.estimate(messages, visibleTools);
+                    audit.contextCompacted(turnNumber, estimatedContext, compactedContext, contextCapacity);
+                    estimatedContext = compactedContext;
+                }
+                if (estimatedContext > contextCapacity) {
                     limitExceeded("CONTEXT_WINDOW_EXCEEDED: 当前完整交换或最新用户输入超过上下文窗口", null);
                     return;
                 }

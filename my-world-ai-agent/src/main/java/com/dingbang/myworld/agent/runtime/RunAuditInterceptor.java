@@ -97,6 +97,8 @@ final class RunAuditInterceptor implements ToolExecutionListener {
      */
     synchronized void modelStarted(String callId) {
         modelCalls++;
+        LOGGER.info("agent_model event=start traceId={} runId={} parentRunId={} callId={} modelCallNumber={}",
+                traceId, runId, parentRunId, safe(callId), modelCalls);
     }
 
     /**
@@ -109,6 +111,19 @@ final class RunAuditInterceptor implements ToolExecutionListener {
     synchronized void modelFinished(String callId, long elapsedNanos, String outcome) {
         LOGGER.info("agent_model traceId={} runId={} parentRunId={} callId={} durationMillis={} outcome={}",
                 traceId, runId, parentRunId, safe(callId), millis(elapsedNanos), safe(outcome));
+    }
+
+    /**
+     * 记录一次运行中上下文压缩前后的估算值。
+     *
+     * @param turnNumber 当前模型回合
+     * @param before 压缩前估算值
+     * @param after 压缩后估算值
+     * @param capacity 当前输入容量
+     */
+    synchronized void contextCompacted(int turnNumber, int before, int after, int capacity) {
+        LOGGER.info("agent_context event=compacted traceId={} runId={} turnNumber={} before={} after={} capacity={}",
+                traceId, runId, turnNumber, before, after, capacity);
     }
 
     /**
@@ -155,10 +170,12 @@ final class RunAuditInterceptor implements ToolExecutionListener {
         // 用 null、partial、reported 区分未报告、部分报告和完整报告。
         ModelTokenUsage usage = result.getUsage();
         LOGGER.info("agent_run event=finish traceId={} runId={} parentRunId={} status={} errorCode={} "
-                        + "durationMillis={} usageStatus={} inputTokens={} outputTokens={} totalTokens={}",
+                        + "errorMessage={} durationMillis={} modelCalls={} reportedUsageCalls={} usageStatus={} "
+                        + "inputTokens={} outputTokens={} totalTokens={}",
                 traceId, runId, parentRunId, result.getStatus(),
                 result.getError() == null ? null : safe(result.getError().getCode()),
-                millis(System.nanoTime() - startedNanos), usage == null ? "unknown"
+                result.getError() == null ? null : preview(result.getError().getMessage()),
+                millis(System.nanoTime() - startedNanos), modelCalls, reportedUsageCalls, usage == null ? "unknown"
                         : reportedUsageCalls < modelCalls ? "partial" : "reported",
                 usage == null ? null : usage.getPromptTokens(),
                 usage == null ? null : usage.getCompletionTokens(),
@@ -186,5 +203,17 @@ final class RunAuditInterceptor implements ToolExecutionListener {
         // 替换换行和特殊字符，避免外部标识破坏 key=value 日志结构。
         String sanitized = value.replaceAll("[^A-Za-z0-9_.:-]", "_");
         return sanitized.substring(0, Math.min(sanitized.length(), 120));
+    }
+
+    /**
+     * 将错误文本压缩为单行有限摘要，避免异常内容破坏日志结构。
+     *
+     * @param value 原始错误文本
+     * @return 单行错误摘要
+     */
+    private static String preview(String value) {
+        if (value == null) return null;
+        String sanitized = value.replaceAll("[\\r\\n\\t]", " ");
+        return sanitized.substring(0, Math.min(sanitized.length(), 240));
     }
 }

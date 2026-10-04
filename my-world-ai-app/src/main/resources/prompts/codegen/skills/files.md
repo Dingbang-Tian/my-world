@@ -1,1 +1,1 @@
-只读文件技能：list_directory_tree 查看目录，view_file 按行读取并返回 sha256，search_files 搜索文件名，search_in_file 和 search_in_directory 搜索内容。输出可能截断，必要时缩小范围重新读取。
+只读文件技能：先用 search_files 或 list_directory_tree 定位，不要盲目读取整个项目；Java 文件优先用 view_file(path, symbol)，例如 symbol="CodegenController#submit"、"Outer.Inner" 或 "Demo#field"；symbol 与 startLine/endLine 互斥。重名或重载时根据候选行号读取，不要猜测；非 Java 文件或语法未完成时使用行范围。按行读取优先约 80～160 行；截断后使用 nextStartLine 继续，续读不传 symbol。view_file 返回 sha256，编辑前必须使用该版本；搜索内容用 search_in_file 或 search_in_directory，并尽量指定目录和少量关键词；输出可能截断时缩小行范围或搜索范围，不要重复请求相同参数。

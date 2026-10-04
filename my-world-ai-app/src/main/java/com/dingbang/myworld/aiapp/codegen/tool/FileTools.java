@@ -44,7 +44,11 @@ public final class FileTools {
     /**
      * 单次工具结果的最大字符数。
      */
-    private static final int MAX_OUTPUT = 16000;
+    private static final int MAX_OUTPUT = 10000;
+    /**
+     * 未显式指定结束行时单次默认读取的最大行数。
+     */
+    private static final int DEFAULT_VIEW_LINES = 240;
     /**
      * 一次目录搜索最多检查的文件数。
      */
@@ -89,11 +93,11 @@ public final class FileTools {
      */
     public List<Tool<?>> all() {
         return List.of(
-                tool("list_directory_tree", "列出工作目录中的目录树", FileTreeArgs.class, this::tree),
-                tool("view_file", "按行读取 UTF-8 文件并返回 SHA-256", FileViewArgs.class, this::view),
-                tool("search_files", "按文件名关键词搜索文件", FileSearchArgs.class, this::searchFiles),
-                tool("search_in_file", "在单个 UTF-8 文件中搜索多个关键词和上下文", FileSearchInFileArgs.class, this::searchInFile),
-                tool("search_in_directory", "在目录下的 UTF-8 文件中搜索多个关键词", DirectorySearchArgs.class, this::searchInDirectory),
+                tool("list_directory_tree", "按深度列出工作目录树；只用于定位，不要代替文件读取", FileTreeArgs.class, this::tree),
+                tool("view_file", "按行或 Java 符号读取文件并返回 SHA-256；symbol 定位类/方法/字段，重载返回候选行号", FileViewArgs.class, this::view),
+                tool("search_files", "按文件名关键词搜索相对路径；优先指定较小目录", FileSearchArgs.class, this::searchFiles),
+                tool("search_in_file", "在单个 UTF-8 文件中按关键词搜索并返回带行号的上下文", FileSearchInFileArgs.class, this::searchInFile),
+                tool("search_in_directory", "在指定目录的 UTF-8 文件中搜索关键词并返回带文件名和行号的结果", DirectorySearchArgs.class, this::searchInDirectory),
                 tool("create_file", "创建新的 UTF-8 文件，拒绝覆盖", FileCreateArgs.class, this::create),
                 tool("edit_file", "校验 SHA-256 后替换、按行插入或追加文件", FileEditArgs.class, this::edit),
                 tool("move_file", "校验 SHA-256 后移动文件，拒绝覆盖目标", FileMoveArgs.class, this::move),
@@ -219,38 +223,96 @@ public final class FileTools {
     }
 
     /**
-     * 读取指定闭区间的行及整文件哈希。
+     * 按行号或 Java 声明读取有界内容，返回整文件哈希和继续读取的位置。
      *
-     * @param args 文件与行范围
+     * @param args 文件、行范围或符号名称
      * @param context 执行上下文
      * @return 带行号与哈希的文件内容
      * @throws IOException 读取失败时
+     * @throws IllegalArgumentException 参数冲突、行范围无效或 Java 源码不能解析时
      */
     private ToolExecutionResult view(FileViewArgs args, ToolExecutionContext context) throws IOException {
-        // 已确认的普通文件。
+        /** 已确认的普通文件。 */
         Path file = regular(args.path);
-        // 文件原始字节。
+        /** 文件原始字节快照。 */
         byte[] bytes = readBytes(file);
-        // 文件行列表。
-        List<String> lines = lines(decode(bytes));
-        // 起始行号。
+        /** 已严格解码的源码。 */
+        String source = decode(bytes);
+        /** 文件行列表。 */
+        List<String> lines = lines(source);
+        /** 起始行号。 */
         int start = args.startLine == null ? 1 : args.startLine;
-        // 末尾行号。
+        /** 请求的结束边界。 */
         int end = args.endLine == null ? lines.size() : args.endLine;
+        /** 文件版本与可选符号信息。 */
+        StringBuilder output = new StringBuilder("sha256=").append(HashUtils.sha256(bytes))
+                .append(" lines=").append(lines.size()).append('\n');
+        context.checkActive();
+        if (args.symbol != null) {
+            if (args.symbol.isBlank() || args.symbol.length() > 256
+                    || args.startLine != null || args.endLine != null) {
+                throw new IllegalArgumentException("symbol 必须非空且不超过 256 字符，与 startLine/endLine 互斥");
+            }
+            if (!file.getFileName().toString().endsWith(".java")) {
+                throw new IllegalArgumentException("symbol 当前仅支持 Java；其他文件请按行读取或使用 search_in_file");
+            }
+            /** 与输入名称匹配的源码声明。 */
+            List<JavaSymbolLocator.SymbolRange> symbols = JavaSymbolLocator.locate(source, args.symbol);
+            context.checkActive();
+            if (symbols.size() != 1) {
+                output.append(symbols.isEmpty() ? "symbolNotFound=true\n" : "ambiguous=true\n");
+                /** 最多返回二十个候选，不猜测重载目标。 */
+                for (JavaSymbolLocator.SymbolRange candidate : symbols.stream().limit(20).toList()) {
+                    output.append(candidate.kind()).append(' ').append(candidate.name())
+                            .append(" startLine=").append(candidate.start())
+                            .append(" endLine=").append(candidate.end()).append('\n');
+                }
+                output.append("candidates=").append(symbols.size())
+                        .append("; use qualified symbol or startLine/endLine without symbol\n");
+                return new ToolExecutionResult(output.toString(), symbols.size() > 20);
+            }
+            /** 唯一匹配的声明。 */
+            JavaSymbolLocator.SymbolRange selected = symbols.get(0);
+            start = selected.start();
+            end = selected.end();
+            output.append("symbol=").append(selected.name()).append(" kind=").append(selected.kind())
+                    .append(" symbolStartLine=").append(start).append(" symbolEndLine=").append(end).append('\n');
+        }
         if (start < 1 || end < start - 1 || start > lines.size() + 1) {
             throw new IllegalArgumentException("行范围无效");
         }
-        // 文件版本和内容输出。
-        StringBuilder output = new StringBuilder("sha256=").append(HashUtils.sha256(bytes))
-                .append(" lines=").append(lines.size()).append('\n');
-        for (int index = start; index <= Math.min(end, lines.size()); index++) {
+        /** 本页结束行；省略结束行或按符号读取时默认分页。 */
+        int pageEnd = (int) Math.min(Math.min((long) end, lines.size()),
+                args.endLine == null ? (long) start + DEFAULT_VIEW_LINES - 1 : Integer.MAX_VALUE);
+        /** 下一条尚未完整返回的行号。 */
+        int next = start;
+        /** 单行是否超过剩余输出空间。 */
+        boolean partialLine = false;
+        /** 当前输出行号。 */
+        for (int index = start; index <= pageEnd; index++) {
             context.checkActive();
-            output.append(index).append(": ").append(lines.get(index - 1)).append('\n');
-            if (output.length() >= MAX_OUTPUT) {
+            /** 含绝对行号的单行内容。 */
+            String line = index + ": " + lines.get(index - 1) + '\n';
+            /** 预留分页元数据后的可用字符数。 */
+            int remaining = MAX_OUTPUT - output.length() - 180;
+            if (line.length() > remaining) {
+                if (index == start) {
+                    output.append(line, 0, Math.max(0, remaining)).append("\n[partialLine]\n");
+                    partialLine = true;
+                }
                 break;
             }
+            output.append(line);
+            next = index + 1;
         }
-        return bounded(output.toString());
+        /** 请求范围是否仍有未返回的内容。 */
+        boolean omitted = next <= Math.min(end, lines.size());
+        output.append("returnedStartLine=").append(start).append(" returnedEndLine=").append(next - 1).append('\n');
+        if (omitted) {
+            output.append("nextStartLine=").append(next).append(" partialLine=").append(partialLine)
+                    .append("; continue using startLine/endLine without symbol\n");
+        }
+        return new ToolExecutionResult(output.toString(), omitted);
     }
 
     /**

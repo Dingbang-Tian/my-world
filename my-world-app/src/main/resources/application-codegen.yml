@@ -46,9 +46,9 @@ my-world:
     command-enabled: ${MYWORLD_CODEGEN_COMMAND_ENABLED:true}
     plan-enabled: ${MYWORLD_CODEGEN_PLAN_ENABLED:true}
     sub-agent-enabled: ${MYWORLD_CODEGEN_SUB_AGENT_ENABLED:true}
-    context-window-tokens: ${MYWORLD_CODEGEN_CONTEXT_WINDOW_TOKENS:32768}
-    summary-trigger-rounds: ${MYWORLD_CODEGEN_SUMMARY_TRIGGER_ROUNDS:20}
-    summary-trigger-tokens: ${MYWORLD_CODEGEN_SUMMARY_TRIGGER_TOKENS:24576}
+    context-window-tokens: ${MYWORLD_CODEGEN_CONTEXT_WINDOW_TOKENS:131072}
+    summary-trigger-rounds: ${MYWORLD_CODEGEN_SUMMARY_TRIGGER_ROUNDS:6}
+    summary-trigger-tokens: ${MYWORLD_CODEGEN_SUMMARY_TRIGGER_TOKENS:65536}
     reserve-output-tokens: ${MYWORLD_CODEGEN_RESERVE_OUTPUT_TOKENS:4096}
     max-summary-tokens: ${MYWORLD_CODEGEN_MAX_SUMMARY_TOKENS:1024}
     command-environment-allowlist:

@@ -215,6 +215,81 @@ class FileToolsTest {
     }
 
     /**
+     * 符号读取使用语法树处理注解、重载、嵌套类和字符串中的花括号。
+     *
+     * @throws Exception 创建源码失败时
+     */
+    @Test
+    void readsJavaDeclarationsAndReportsAmbiguity() throws Exception {
+        Files.writeString(workspace.resolve("Demo.java"), """
+                class Demo {
+                    String field = "}";
+                    Demo() { }
+                    // fake() { not a declaration }
+                    @Deprecated
+                    <T> String chosen(T value) {
+                        String braces = "{";
+                        return braces;
+                    }
+                    void overloaded() { }
+                    void overloaded(int value) { }
+                    static class Inner {
+                        void chosen() { }
+                    }
+                }
+                """);
+        /** 文件工具执行器。 */
+        ToolExecutor executor = executor();
+        /** 唯一限定方法的读取结果。 */
+        ToolResult method = invoke(executor, "view_file", """
+                {"path":"Demo.java","symbol":"Demo#chosen"}
+                """);
+        assertThat(method.getStatus()).isEqualTo(ToolResultStatus.SUCCESS);
+        assertThat(method.getContent()).contains("symbolStartLine=5 symbolEndLine=9", "@Deprecated", "return braces")
+                .doesNotContain("overloaded", "fake()", "String field");
+        assertThat(hash(method.getContent())).isEqualTo(hash(invoke(executor, "view_file",
+                "{\"path\":\"Demo.java\",\"startLine\":1,\"endLine\":1}").getContent()));
+        assertThat(invoke(executor, "view_file", "{\"path\":\"Demo.java\",\"symbol\":\"overloaded\"}")
+                .getContent()).contains("ambiguous=true", "startLine=10", "startLine=11");
+        assertThat(invoke(executor, "view_file", "{\"path\":\"Demo.java\",\"symbol\":\"Demo.Inner\"}")
+                .getContent()).contains("kind=CLASS", "symbolStartLine=12 symbolEndLine=14");
+        assertThat(invoke(executor, "view_file", "{\"path\":\"Demo.java\",\"symbol\":\"Demo#field\"}")
+                .getContent()).contains("kind=VARIABLE", "String field").doesNotContain("return braces");
+        assertThat(invoke(executor, "view_file", "{\"path\":\"Demo.java\",\"symbol\":\"Demo#Demo\"}")
+                .getContent()).contains("kind=METHOD", "Demo() { }");
+        assertThat(invoke(executor, "view_file", "{\"path\":\"Demo.java\",\"symbol\":\"fake\"}")
+                .getContent()).contains("symbolNotFound=true");
+    }
+
+    /**
+     * 大型声明分页时返回续读行号，参数冲突及不支持的文件类型明确失败。
+     *
+     * @throws Exception 创建源码失败时
+     */
+    @Test
+    void paginatesSymbolsAndRejectsInvalidSelectors() throws Exception {
+        Files.writeString(workspace.resolve("Large.java"), "class Large {\n" + "// filler\n".repeat(300) + "}\n");
+        Files.writeString(workspace.resolve("plain.txt"), "symbol");
+        Files.writeString(workspace.resolve("Broken.java"), "class Broken { void invalid( }");
+        /** 文件工具执行器。 */
+        ToolExecutor executor = executor();
+        /** 符号读取的第一页。 */
+        ToolResult first = invoke(executor, "view_file", "{\"path\":\"Large.java\",\"symbol\":\"Large\"}");
+        assertThat(first.isTruncated()).isTrue();
+        assertThat(first.getContent()).contains("symbolEndLine=302", "nextStartLine=241");
+        assertThat(invoke(executor, "view_file", "{\"path\":\"Large.java\",\"startLine\":241,\"endLine\":302}")
+                .getContent()).contains("302: }");
+        assertThat(invoke(executor, "view_file", "{\"path\":\"Large.java\",\"symbol\":\"Large\",\"startLine\":1}")
+                .getStatus()).isEqualTo(ToolResultStatus.ERROR);
+        assertThat(invoke(executor, "view_file", "{\"path\":\"plain.txt\",\"symbol\":\"symbol\"}")
+                .getStatus()).isEqualTo(ToolResultStatus.ERROR);
+        assertThat(invoke(executor, "view_file", "{\"path\":\"Broken.java\",\"symbol\":\"invalid\"}")
+                .getStatus()).isEqualTo(ToolResultStatus.ERROR);
+        assertThat(invoke(executor, "view_file", "{\"path\":\"../escape.java\",\"symbol\":\"Example\"}")
+                .getStatus()).isEqualTo(ToolResultStatus.ERROR);
+    }
+
+    /**
      * 创建只针对临时目录的工具执行器。
      *
      * @return 工具执行器
