@@ -11,16 +11,24 @@ import lombok.Data;
 @Data
 public final class ModelTokenUsage {
 
-    /** 输入 token 数。 */
+    /**
+     * 输入 token 数。
+     */
     private final long promptTokens;
 
-    /** 输出 token 数。 */
+    /**
+     * 输出 token 数。
+     */
     private final long completionTokens;
 
-    /** 总 token 数。 */
+    /**
+     * 总 token 数。
+     */
     private final long totalTokens;
 
-    /** 输出中包含的推理 token 数，供应商未提供时为 null。 */
+    /**
+     * 输出中包含的推理 token 数，供应商未提供时为 null。
+     */
     private final Long reasoningTokens;
 
     /**

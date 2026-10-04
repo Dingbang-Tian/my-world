@@ -11,16 +11,24 @@ import lombok.Data;
 @Data
 public final class ModelOptions {
 
-    /** 采样温度，取值为 0 到 2。 */
+    /**
+     * 采样温度，取值为 0 到 2。
+     */
     private final Double temperature;
 
-    /** 最大生成 token 数，必须为正数。 */
+    /**
+     * 最大生成 token 数，必须为正数。
+     */
     private final Integer maxCompletionTokens;
 
-    /** 推理强度，由具体协议验证支持的取值。 */
+    /**
+     * 推理强度，由具体协议验证支持的取值。
+     */
     private final String reasoningEffort;
 
-    /** 是否显式启用模型推理；空值表示沿用模型默认值。 */
+    /**
+     * 是否显式启用模型推理；空值表示沿用模型默认值。
+     */
     private final Boolean thinkingEnabled;
 
     /**

@@ -3,8 +3,6 @@ package com.dingbang.myworld.common.utils;
 import org.springframework.util.ConcurrentReferenceHashMap;
 
 import java.lang.reflect.Field;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
@@ -19,6 +17,9 @@ import java.util.function.Consumer;
  */
 public class ReflectUtils {
 
+    /**
+     * 无字段时复用的空数组。
+     */
     private static final Field[] NO_FIELDS = {};
 
     /**
@@ -68,6 +69,9 @@ public class ReflectUtils {
         return null;
     }
 
+    /**
+     * Java 包装类型集合。
+     */
     private static final Set<Class<?>> BOX_TYPE_MAP = new HashSet<>();
 
     static {

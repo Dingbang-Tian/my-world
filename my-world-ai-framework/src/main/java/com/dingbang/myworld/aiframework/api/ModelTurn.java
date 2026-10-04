@@ -26,7 +26,9 @@ public final class ModelTurn {
      */
     private final ModelFinishReason finishReason;
 
-    /** 本轮完整用量，可因供应商未提供而为空。 */
+    /**
+     * 本轮完整用量，可因供应商未提供而为空。
+     */
     private final ModelTokenUsage usage;
 
     /**

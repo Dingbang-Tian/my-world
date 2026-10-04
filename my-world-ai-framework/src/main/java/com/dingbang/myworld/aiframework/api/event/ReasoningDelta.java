@@ -13,7 +13,9 @@ import java.util.Objects;
 @Data
 public final class ReasoningDelta implements ModelEvent {
 
-    /** 本次推理文本增量。 */
+    /**
+     * 本次推理文本增量。
+     */
     private final String text;
 
     /**

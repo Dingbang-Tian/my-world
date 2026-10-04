@@ -63,9 +63,13 @@ public final class AgentDefinition {
      */
     private final int maxModelTurns;
 
-    /** 整次运行的可信预算。 */
+    /**
+     * 整次运行的可信预算。
+     */
     private final AgentLimits limits;
-    /** 可信上下文窗口与摘要策略。 */
+    /**
+     * 可信上下文窗口与摘要策略。
+     */
     private final ContextPolicy contextPolicy;
 
     /**

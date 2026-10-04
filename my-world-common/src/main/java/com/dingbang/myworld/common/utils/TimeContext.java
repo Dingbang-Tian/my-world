@@ -17,13 +17,37 @@ import java.time.ZoneId;
 @Slf4j
 public class TimeContext {
 
+    /**
+     * 当前时间上下文使用的时区。
+     */
     private ZoneId zoneId;
+    /**
+     * 当前时间上下文的时刻。
+     */
     private LocalDateTime now;
+    /**
+     * 当天的起始时间。
+     */
     private LocalDateTime startOfTheDay;
+    /**
+     * 本周的起始时间。
+     */
     private LocalDateTime startOfTheWeek;
+    /**
+     * 本月的起始时间。
+     */
     private LocalDateTime startOfTheMonth;
+    /**
+     * 当天的结束时间。
+     */
     private LocalDateTime endOfTheDay;
+    /**
+     * 本周的结束时间。
+     */
     private LocalDateTime endOfTheWeek;
+    /**
+     * 本月的结束时间。
+     */
     private LocalDateTime endOfTheMonth;
 
     public static TimeContext getTimeContext() {

@@ -10,11 +10,7 @@ import com.dingbang.myworld.agent.api.AgentResultStatus;
 import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.prompt.PromptTemplateRegistry;
 import com.dingbang.myworld.agent.tool.Tool;
-import com.dingbang.myworld.agent.tool.ToolExecutionContext;
-import com.dingbang.myworld.agent.tool.ToolExecutionResult;
 import com.dingbang.myworld.agent.tool.ToolRegistry;
-import com.dingbang.myworld.agent.tool.annotation.ToolInfo;
-import com.dingbang.myworld.agent.tool.annotation.ToolParam;
 import com.dingbang.myworld.aiframework.api.ModelFinishReason;
 import com.dingbang.myworld.aiframework.api.ModelTokenUsage;
 import com.dingbang.myworld.aiframework.api.ModelTurn;
@@ -52,19 +48,19 @@ class AgentRunControlTest {
      */
     @Test
     void completedRunIgnoresLateErrorAndCancel() throws Exception {
-        /** 在完成回调后故意再次报错的模型。 */
+        // 在完成回调后故意再次报错的模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             textTurn(listener, "ok", null);
             listener.onError(new IllegalStateException("迟到的连接关闭"));
         });
-        /** 本次运行。 */
+        // 本次运行。
         AgentRun run = service(gateway, limits(4, 2, 100, Duration.ofSeconds(2)), Collections.emptyList())
                 .prepare(input(null));
-        /** 完整事件观察者。 */
+        // 完整事件观察者。
         RecordingAgentEventListener observer = new RecordingAgentEventListener();
         run.subscribe(observer);
         run.execute();
-        /** 唯一最终结果。 */
+        // 唯一最终结果。
         AgentResult result = run.getResult().toCompletableFuture().get(2, TimeUnit.SECONDS);
         run.cancel();
         run.cancel();
@@ -80,11 +76,11 @@ class AgentRunControlTest {
      */
     @Test
     void cancelPropagatesToModelAndReleasesSession() throws Exception {
-        /** 确认模型已经开始工作的门闩。 */
+        // 确认模型已经开始工作的门闩。
         CountDownLatch entered = new CountDownLatch(1);
-        /** 确认模型资源收到取消的门闩。 */
+        // 确认模型资源收到取消的门闩。
         CountDownLatch cancelled = new CountDownLatch(1);
-        /** 只在首轮等待取消的脚本模型。 */
+        // 只在首轮等待取消的脚本模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             if (request.getMessages().size() == 2 && entered.getCount() > 0) {
                 request.getExecutionContext().getCancellation().onCancel(cancelled::countDown);
@@ -93,7 +89,7 @@ class AgentRunControlTest {
             }
             textTurn(listener, "next", null);
         });
-        /** 首轮运行。 */
+        // 首轮运行。
         DefaultAgentService service = service(gateway, limits(4, 2, 100, Duration.ofSeconds(2)),
                 Collections.emptyList());
         AgentRun run = service.prepare(input(null));
@@ -105,7 +101,7 @@ class AgentRunControlTest {
                 .isEqualTo(AgentResultStatus.CANCELLED);
         assertThat(cancelled.await(2, TimeUnit.SECONDS)).isTrue();
         assertThatThrownBy(run::execute).isInstanceOf(IllegalStateException.class);
-        /** 复用已释放会话的新运行。 */
+        // 复用已释放会话的新运行。
         AgentRun next = service.prepare(input(run.getSessionId()));
         next.execute();
         assertThat(next.getResult().toCompletableFuture().get(2, TimeUnit.SECONDS).getStatus())
@@ -119,43 +115,17 @@ class AgentRunControlTest {
      */
     @Test
     void observerFailureDoesNotChangeRun() throws Exception {
-        /** 模型完整回答。 */
+        // 模型完整回答。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             listener.onEvent(new TextDelta("ok"));
             textTurn(listener, "ok", null);
         });
-        /** 本次运行。 */
+        // 本次运行。
         AgentRun run = service(gateway, limits(4, 2, 100, Duration.ofSeconds(2)),
                 Collections.emptyList()).prepare(input(null));
-        /** 观察者错误已经回报的门闩。 */
+        // 观察者错误已经回报的门闩。
         CountDownLatch observerFailed = new CountDownLatch(1);
-        run.subscribe(new com.dingbang.myworld.agent.api.AgentEventListener() {
-            /**
-             * 故意拒绝文本事件。
-             *
-             * @param event 当前事件
-             */
-            @Override
-            public void onEvent(AgentEvent event) {
-                throw new IllegalStateException("观察者模拟故障");
-            }
-
-            /**
-             * 忽略正常结束。
-             */
-            @Override
-            public void onComplete() { }
-
-            /**
-             * 记录观察者级错误。
-             *
-             * @param error 当前订阅错误
-             */
-            @Override
-            public void onError(com.dingbang.myworld.agent.api.AgentEventException error) {
-                observerFailed.countDown();
-            }
-        });
+        run.subscribe(new FaultingAgentEventListener(observerFailed));
         run.execute();
         assertThat(run.getResult().toCompletableFuture().get(2, TimeUnit.SECONDS).getStatus())
                 .isEqualTo(AgentResultStatus.COMPLETED);
@@ -169,13 +139,13 @@ class AgentRunControlTest {
      */
     @Test
     void timeoutCompletesWithoutModelCallback() throws Exception {
-        /** 返回后不产生任何模型回调的网关。 */
+        // 返回后不产生任何模型回调的网关。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> { });
-        /** 50 毫秒全局时限的运行。 */
+        // 50 毫秒全局时限的运行。
         AgentRun run = service(gateway, limits(4, 2, 100, Duration.ofMillis(50)), Collections.emptyList())
                 .prepare(input(null));
         run.execute();
-        /** 截止时间触发的结果。 */
+        // 截止时间触发的结果。
         AgentResult result = run.getResult().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.TIMED_OUT);
         assertThat(result.getError().getCode()).isEqualTo("TIMEOUT");
@@ -189,15 +159,15 @@ class AgentRunControlTest {
      */
     @Test
     void cancellationStopsRemainingToolCalls() throws Exception {
-        /** 第一工具开始后的同步门闩。 */
+        // 第一工具开始后的同步门闩。
         CountDownLatch firstStarted = new CountDownLatch(1);
-        /** 测试工具累计真实执行次数。 */
+        // 测试工具累计真实执行次数。
         AtomicInteger calls = new AtomicInteger();
-        /** 会等待运行取消的真实 Java 工具。 */
-        CountingTool tool = new CountingTool(calls, firstStarted, true);
-        /** 请求同批两个工具调用的模型。 */
+        // 会等待运行取消的真实 Java 工具。
+        AgentRunControlTestCountingTool tool = new AgentRunControlTestCountingTool(calls, firstStarted, true);
+        // 请求同批两个工具调用的模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
-            /** 完整工具调用助手消息。 */
+            // 完整工具调用助手消息。
             Message assistant = new Message("calls", Role.ASSISTANT, Collections.emptyList(), Arrays.asList(
                     new ToolCall("c1", "count", "{\"unused\":\"x\"}"),
                     new ToolCall("c2", "count", "{\"unused\":\"x\"}")),
@@ -205,7 +175,7 @@ class AgentRunControlTest {
             listener.onEvent(new TurnCompleted(new ModelTurn(assistant, ModelFinishReason.TOOL_CALLS)));
             listener.onComplete();
         });
-        /** 本次运行。 */
+        // 本次运行。
         AgentRun run = service(gateway, limits(4, 2, 100, Duration.ofSeconds(2)),
                 Collections.singletonList(tool)).prepare(input(null));
         run.execute();
@@ -224,11 +194,11 @@ class AgentRunControlTest {
      */
     @Test
     void enforcesToolAndOutputLimitsAndCountsUsageOnce() throws Exception {
-        /** 未达到授权数量的工具执行计数。 */
+        // 未达到授权数量的工具执行计数。
         AtomicInteger calls = new AtomicInteger();
-        /** 超出工具预算的一批调用模型。 */
+        // 超出工具预算的一批调用模型。
         ScriptedAgentModelGateway toolsGateway = new ScriptedAgentModelGateway((request, listener) -> {
-            /** 两个模型工具调用。 */
+            // 两个模型工具调用。
             Message assistant = new Message("calls", Role.ASSISTANT, Collections.emptyList(), Arrays.asList(
                     new ToolCall("c1", "count", "{\"unused\":\"x\"}"),
                     new ToolCall("c2", "count", "{\"unused\":\"x\"}")),
@@ -236,29 +206,29 @@ class AgentRunControlTest {
             listener.onEvent(new TurnCompleted(new ModelTurn(assistant, ModelFinishReason.TOOL_CALLS)));
             listener.onComplete();
         });
-        /** 工具预算拒绝的结果。 */
+        // 工具预算拒绝的结果。
         AgentResult toolLimit = service(toolsGateway, limits(4, 1, 100, Duration.ofSeconds(2)),
-                Collections.singletonList(new CountingTool(calls, null, false))).run(input(null));
+                Collections.singletonList(new AgentRunControlTestCountingTool(calls, null, false))).run(input(null));
         assertThat(toolLimit.getStatus()).isEqualTo(AgentResultStatus.LIMIT_EXCEEDED);
         assertThat(calls.get()).isZero();
 
-        /** 模型给出的单轮最终用量。 */
+        // 模型给出的单轮最终用量。
         ModelTokenUsage usage = new ModelTokenUsage(3, 2, 5, null);
-        /** 先发重复用量事件再发完整回合的模型。 */
+        // 先发重复用量事件再发完整回合的模型。
         ScriptedAgentModelGateway outputGateway = new ScriptedAgentModelGateway((request, listener) -> {
             listener.onEvent(new TextDelta("abc"));
             listener.onEvent(new UsageReported(usage));
             listener.onEvent(new UsageReported(usage));
             textTurn(listener, "abc", usage);
         });
-        /** 正常额度内的运行。 */
+        // 正常额度内的运行。
         AgentRun normal = service(outputGateway, limits(4, 1, 3, Duration.ofSeconds(2)),
                 Collections.emptyList()).prepare(input(null));
-        /** 正常用量事件观察者。 */
+        // 正常用量事件观察者。
         RecordingAgentEventListener observer = new RecordingAgentEventListener();
         normal.subscribe(observer);
         normal.execute();
-        /** 正常结果。 */
+        // 正常结果。
         AgentResult completed = normal.getResult().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertThat(observer.awaitCompletion(2, TimeUnit.SECONDS)).isTrue();
         assertThat(completed.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
@@ -266,7 +236,7 @@ class AgentRunControlTest {
         assertThat(observer.getEvents()).extracting(AgentEvent::getType)
                 .containsExactly(AgentEventType.TEXT_DELTA, AgentEventType.USAGE, AgentEventType.COMPLETED);
 
-        /** 会超过两字符上限的运行。 */
+        // 会超过两字符上限的运行。
         AgentResult outputLimit = service(outputGateway, limits(4, 1, 2, Duration.ofSeconds(2)),
                 Collections.emptyList()).run(input(null));
         assertThat(outputLimit.getStatus()).isEqualTo(AgentResultStatus.LIMIT_EXCEEDED);
@@ -283,10 +253,10 @@ class AgentRunControlTest {
      */
     private static DefaultAgentService service(ScriptedAgentModelGateway gateway, AgentLimits limits,
                                                List<Tool<?>> tools) {
-        /** 默认公共模板仓库。 */
+        // 默认公共模板仓库。
         PromptTemplateRegistry prompts = new PromptTemplateRegistry(new DefaultResourceLoader(),
                 Collections.emptyMap(), Collections.emptyMap());
-        /** 具有当前限制的可信定义。 */
+        // 具有当前限制的可信定义。
         AgentDefinition definition = new AgentDefinition("app", "control", "测试助手", "控制测试", "scripted",
                 null, tools.isEmpty() ? Collections.emptyList() : Collections.singletonList("count"),
                 Collections.emptyList(), limits);
@@ -325,7 +295,7 @@ class AgentRunControlTest {
      * @param usage 本轮用量，可为空
      */
     private static void textTurn(ModelEventListener listener, String text, ModelTokenUsage usage) {
-        /** 完整助手消息。 */
+        // 完整助手消息。
         Message answer = new Message("answer", Role.ASSISTANT,
                 Collections.singletonList(new TextContentBlock(text)), Collections.emptyList(),
                 Collections.emptyList(), Collections.emptyMap());
@@ -333,80 +303,5 @@ class AgentRunControlTest {
         listener.onComplete();
     }
 
-    /**
-     * 记录执行并可等待取消的工具参数。
-     *
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    public static final class EmptyArgs {
-        /** 无参数工具的占位字段。 */
-        @ToolParam(description = "占位文本")
-        public String unused;
-    }
 
-    /**
-     * 验证取消后不再执行同批其余工具的测试工具。
-     *
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    @ToolInfo(name = "count", description = "统计工具调用")
-    public static final class CountingTool implements Tool<EmptyArgs> {
-        /** 实际执行次数。 */
-        private final AtomicInteger calls;
-        /** 首次开始的同步标记，可为空。 */
-        private final CountDownLatch entered;
-        /** 是否等待取消。 */
-        private final boolean waitForCancel;
-
-        /**
-         * 绑定计数与等待策略。
-         *
-         * @param calls 执行计数
-         * @param entered 首次执行标记，可为空
-         * @param waitForCancel 是否等待取消
-         */
-        public CountingTool(AtomicInteger calls, CountDownLatch entered, boolean waitForCancel) {
-            this.calls = calls;
-            this.entered = entered;
-            this.waitForCancel = waitForCancel;
-        }
-
-        /**
-         * 返回无参数工具类型。
-         *
-         * @return 参数类型
-         */
-        @Override
-        public Class<EmptyArgs> parameterType() {
-            return EmptyArgs.class;
-        }
-
-        /**
-         * 执行一次并在需要时等待协作取消。
-         *
-         * @param parameters 空参数
-         * @param context 可信工具上下文
-         * @return 工具执行结果
-         */
-        @Override
-        public ToolExecutionResult execute(EmptyArgs parameters, ToolExecutionContext context) {
-            calls.incrementAndGet();
-            if (entered != null) {
-                entered.countDown();
-            }
-            if (waitForCancel) {
-                while (!context.getCancellation().isCancelled()) {
-                    try {
-                        TimeUnit.MILLISECONDS.sleep(10);
-                    } catch (InterruptedException exception) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-            }
-            return ToolExecutionResult.text("1");
-        }
-    }
 }

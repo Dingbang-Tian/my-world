@@ -61,7 +61,9 @@ public final class AgentResult {
      */
     private final String promptHash;
 
-    /** 本次运行已完成模型回合的用量合计，可为空。 */
+    /**
+     * 本次运行已完成模型回合的用量合计，可为空。
+     */
     private final ModelTokenUsage usage;
 
     /**
@@ -98,6 +100,7 @@ public final class AgentResult {
      * @param promptTemplateId 系统模板标识
      * @param promptHash 系统模板内容哈希
      * @param usage 已完成模型回合的用量合计，可为 null
+     * @throws IllegalArgumentException 状态仍为运行中或终态内容不匹配时
      */
     public AgentResult(String runId, String sessionId, String requestId, AgentResultStatus status,
                        String finalText, ModelFinishReason finishReason, AgentError error,
@@ -106,6 +109,9 @@ public final class AgentResult {
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         this.requestId = Objects.requireNonNull(requestId, "请求标识不能为 null");
         this.status = Objects.requireNonNull(status, "运行状态不能为 null");
+        if (status == AgentResultStatus.RUNNING) {
+            throw new IllegalArgumentException("最终结果不能处于运行中状态");
+        }
         if (status == AgentResultStatus.COMPLETED
                 && (StringUtils.isBlank(finalText) || finishReason == null || error != null)) {
             throw new IllegalArgumentException("完成结果需要完整文本和模型结束原因，且不能包含错误");

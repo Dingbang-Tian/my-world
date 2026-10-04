@@ -1,7 +1,8 @@
 package com.dingbang.myworld.common.utils;
 
-import cn.hutool.core.util.ReflectUtil;
 import com.google.common.primitives.Primitives;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.util.Collection;
 import java.util.Map;
@@ -12,17 +13,15 @@ import java.util.Map;
  * @author Sebastian
  * @since 2026/09/25
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class ClassTypeUtils {
 
 
+    /**
+     * 可直接处理的基础类型集合。
+     */
     private static final Class<?>[] BASE_CLASSES = new Class<?>[]{Void.class, Object.class, Class.class, String.class};
 
-
-    /**
-     * 不让继承和实例化，有需要直接在commons里改
-     */
-    private ClassTypeUtils() {
-    }
 
 
     /**

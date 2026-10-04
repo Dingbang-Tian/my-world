@@ -13,7 +13,9 @@ import java.util.Objects;
  * @since 2026/10/03
  */
 public final class WorkspacePolicy {
-    /** 已存在且已解析真实路径的工作目录。 */
+    /**
+     * 已存在且已解析真实路径的工作目录。
+     */
     private final Path root;
 
     /**
@@ -49,17 +51,17 @@ public final class WorkspacePolicy {
         } catch (IOException exception) {
             throw new IllegalArgumentException("工作目录不可访问", exception);
         }
-        /** 用户提交的相对路径。 */
+        // 用户提交的相对路径。
         Path input = Path.of(relative);
         if (input.isAbsolute()) {
             throw new IllegalArgumentException("只允许相对路径");
         }
-        /** 标准化后的目标路径。 */
+        // 标准化后的目标路径。
         Path result = root.resolve(input).normalize();
         if (!result.startsWith(root)) {
             throw new IllegalArgumentException("路径超出工作目录");
         }
-        /** 当前检查的每一级路径。 */
+        // 当前检查的每一级路径。
         Path current = root;
         for (Path segment : root.relativize(result)) {
             current = current.resolve(segment);

@@ -1,5 +1,7 @@
 package com.dingbang.myworld.agent.runtime;
 
+import com.dingbang.myworld.aiframework.model.content.MediaKind;
+
 import com.dingbang.myworld.agent.api.AgentDefinition;
 import com.dingbang.myworld.agent.api.AgentRequest;
 import com.dingbang.myworld.agent.api.AgentResultStatus;
@@ -47,28 +49,28 @@ class AgentSessionServiceTest {
      */
     @Test
     void carriesImageAttachmentThroughAgentAndSession() {
-        /** 只返回文本的脚本模型。 */
+        // 只返回文本的脚本模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             listener.onEvent(new TurnCompleted(new ModelTurn(text("answer", Role.ASSISTANT, "看到图片"),
                     ModelFinishReason.STOP)));
             listener.onComplete();
         });
-        /** 当前 Agent 服务。 */
+        // 当前 Agent 服务。
         DefaultAgentService service = service(gateway, new InMemorySessionRepository());
-        /** 已启用的会话。 */
+        // 已启用的会话。
         String sessionId = service.createSession("owner", "app", "assistant", ModelOptions.empty());
-        /** 用户提供的 HTTPS 图片。 */
-        MediaContentBlock image = new MediaContentBlock(MediaContentBlock.Kind.IMAGE, "image/png", "map.png",
+        // 用户提供的 HTTPS 图片。
+        MediaContentBlock image = new MediaContentBlock(MediaKind.IMAGE, "image/png", "map.png",
                 URI.create("https://example.com/map.png"), null);
         assertThat(service.run(new AgentRequest("owner", "app", "assistant", sessionId, "r-image",
                 "看图", ModelOptions.empty(), List.of(image))).getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
-        /** 模型看到的用户消息。 */
+        // 模型看到的用户消息。
         Message sent = gateway.getRequests().get(0).getMessages().get(1);
         assertThat(sent.getContentBlocks()).hasSize(2);
         assertThat(((MediaContentBlock) sent.getContentBlocks().get(1)).getUrl()).isEqualTo(image.getUrl());
-        /** 导出并恢复的历史。 */
+        // 导出并恢复的历史。
         String serialized = service.exportSession("owner", "app", "assistant", sessionId);
-        /** 恢复后的附件。 */
+        // 恢复后的附件。
         MediaContentBlock restored = (MediaContentBlock) new SessionExportCodec().decode(serialized)
                 .getMessages().get(0).getContentBlocks().get(1);
         assertThat(restored.getMimeType()).isEqualTo("image/png");
@@ -80,25 +82,25 @@ class AgentSessionServiceTest {
      */
     @Test
     void boundsAndRestoresInlineMedia() {
-        /** 有界内存图片。 */
-        MediaContentBlock image = new MediaContentBlock(MediaContentBlock.Kind.IMAGE, "image/png", "inline.png",
+        // 有界内存图片。
+        MediaContentBlock image = new MediaContentBlock(MediaKind.IMAGE, "image/png", "inline.png",
                 null, new byte[]{1, 2, 3});
-        /** 完整一轮消息。 */
+        // 完整一轮消息。
         List<Message> exchange = List.of(new Message("u", Role.USER,
                         List.of(new TextContentBlock("看图"), image), List.of(), List.of(), Map.of()),
                 text("a", Role.ASSISTANT, "好"));
-        /** 会话编解码器。 */
+        // 会话编解码器。
         SessionExportCodec codec = new SessionExportCodec();
-        /** 版本化会话 JSON。 */
+        // 版本化会话 JSON。
         String json = codec.encode("s", "owner", "app", "assistant", ModelOptions.empty(),
                 new SessionSnapshot(1, exchange));
-        /** 恢复的内存图片。 */
+        // 恢复的内存图片。
         MediaContentBlock restored = (MediaContentBlock) codec.decode(json).getMessages().get(0)
                 .getContentBlocks().get(1);
         assertThat(restored.getBytes()).containsExactly(1, 2, 3);
-        assertThatThrownBy(() -> new MediaContentBlock(MediaContentBlock.Kind.IMAGE,
+        assertThatThrownBy(() -> new MediaContentBlock(MediaKind.IMAGE,
                 "video/mp4", "bad", null, new byte[]{1})).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new MediaContentBlock(MediaContentBlock.Kind.IMAGE,
+        assertThatThrownBy(() -> new MediaContentBlock(MediaKind.IMAGE,
                 "image/png", "large", null, new byte[MediaContentBlock.MAX_BYTES + 1]))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -108,20 +110,20 @@ class AgentSessionServiceTest {
      */
     @Test
     void isolatesOwnersAndRestoresConversation() {
-        /** 本地模型。 */
+        // 本地模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
-            /** 用户文本。 */
+            // 用户文本。
             String answer = ((TextContentBlock) request.getMessages().get(request.getMessages().size() - 1)
                     .getContentBlocks().get(0)).getText();
             listener.onEvent(new TurnCompleted(new ModelTurn(text("assistant-" + answer, Role.ASSISTANT, answer),
                     ModelFinishReason.STOP)));
             listener.onComplete();
         });
-        /** 第一个服务。 */
+        // 第一个服务。
         DefaultAgentService service = service(gateway, new InMemorySessionRepository());
-        /** 所有者甲的会话。 */
+        // 所有者甲的会话。
         String first = service.createSession("owner-a", "app", "assistant", new ModelOptions(0.2, 25, null));
-        /** 所有者乙的会话。 */
+        // 所有者乙的会话。
         String second = service.createSession("owner-b", "app", "assistant", new ModelOptions(0.8, 50, null));
 
         assertThat(service.run(new AgentRequest("owner-a", "app", "assistant", first, "r1", "甲的事实",
@@ -135,13 +137,13 @@ class AgentSessionServiceTest {
         assertThatThrownBy(() -> service.exportSession("owner-b", "app", "assistant", first))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        /** 导出的无凭据会话。 */
+        // 导出的无凭据会话。
         String exported = service.exportSession("owner-a", "app", "assistant", first);
         assertThat(exported).contains("\"schemaVersion\":1", "甲的事实");
         assertThat(exported).doesNotContain("apiKey", "client", "secret");
-        /** 使用新仓库的第二个服务。 */
+        // 使用新仓库的第二个服务。
         DefaultAgentService restored = service(gateway, new InMemorySessionRepository());
-        /** 带有伪造工具授权字段的导入内容。 */
+        // 带有伪造工具授权字段的导入内容。
         String untrustedExport = exported.replace("\"messages\":", "\"toolIds\":[\"danger\"],\"messages\":");
         assertThat(restored.importSession("owner-a", "app", "assistant", untrustedExport)).isEqualTo(first);
         assertThat(restored.getSession("owner-a", "app", "assistant", first).getMessages())
@@ -167,25 +169,25 @@ class AgentSessionServiceTest {
      */
     @Test
     void preservesPairedToolsAndRejectsIncompleteHistory() {
-        /** 完整工具交换。 */
+        // 完整工具交换。
         List<Message> exchange = Arrays.asList(text("u", Role.USER, "计算"),
                 new Message("a1", Role.ASSISTANT, List.of(),
                         List.of(new ToolCall("c1", "add", "{\"a\":2}")), List.of(), Map.of()),
                 new Message("t1", Role.TOOL, List.of(), List.of(),
                         List.of(new ToolResult("c1", ToolResultStatus.SUCCESS, "2", null, false)), Map.of()),
                 text("a2", Role.ASSISTANT, "2"));
-        /** 内存仓库。 */
+        // 内存仓库。
         InMemorySessionRepository repository = new InMemorySessionRepository();
-        /** 会话。 */
+        // 会话。
         Session session = repository.create("id", "owner", "app", "assistant", ModelOptions.empty());
         assertThat(session.tryStart()).isTrue();
         session.appendExchange(0, exchange);
         assertThatThrownBy(() -> session.appendExchange(0, exchange))
                 .isInstanceOf(IllegalStateException.class).hasMessage("VERSION_CONFLICT");
         session.release();
-        /** 导出编解码器。 */
+        // 导出编解码器。
         SessionExportCodec codec = new SessionExportCodec();
-        /** 导出 JSON。 */
+        // 导出 JSON。
         String json = codec.encode("id", "owner", "app", "assistant", session.options(), session.snapshot());
         assertThat(codec.decode(json).getMessages()).isEqualTo(exchange);
         assertThatThrownBy(() -> codec.decode(json.replace("\"callId\":\"c1\",\"status\"",
@@ -200,11 +202,11 @@ class AgentSessionServiceTest {
      */
     @Test
     void busyAndCancellationDoNotPolluteHistory() throws Exception {
-        /** 模型已启动信号。 */
+        // 模型已启动信号。
         CountDownLatch entered = new CountDownLatch(1);
-        /** 模型释放信号。 */
+        // 模型释放信号。
         CountDownLatch release = new CountDownLatch(1);
-        /** 等待释放的本地模型。 */
+        // 等待释放的本地模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             entered.countDown();
             try {
@@ -213,11 +215,11 @@ class AgentSessionServiceTest {
                 Thread.currentThread().interrupt();
             }
         });
-        /** 服务。 */
+        // 服务。
         DefaultAgentService service = service(gateway, new InMemorySessionRepository());
-        /** 会话标识。 */
+        // 会话标识。
         String sessionId = service.createSession("owner", "app", "assistant", ModelOptions.empty());
-        /** 第一个运行。 */
+        // 第一个运行。
         AgentRun first = service.prepare(new AgentRequest("owner", "app", "assistant", sessionId,
                 "r1", "未完成", ModelOptions.empty()));
         first.execute();
@@ -241,9 +243,9 @@ class AgentSessionServiceTest {
      * @return Agent 服务
      */
     private static DefaultAgentService service(ScriptedAgentModelGateway gateway, InMemorySessionRepository repository) {
-        /** 提示词仓库。 */
+        // 提示词仓库。
         PromptTemplateRegistry prompts = new PromptTemplateRegistry(new DefaultResourceLoader(), Map.of(), Map.of());
-        /** 可信 Agent 定义。 */
+        // 可信 Agent 定义。
         AgentDefinition definition = new AgentDefinition("app", "assistant", "测试助手", "测试", "model", null);
         return new DefaultAgentService(gateway, prompts, List.of(definition),
                 new ToolRegistry(Collections.emptyList()), List.of(), AgentExecutors.WORK, repository);

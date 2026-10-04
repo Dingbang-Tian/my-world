@@ -22,7 +22,9 @@ import java.util.Map;
  * @since 2026/10/03
  */
 public final class ContextAssembler {
-    /** 每条消息的角色与协议结构估算开销。 */
+    /**
+     * 每条消息的角色与协议结构估算开销。
+     */
     private static final int MESSAGE_OVERHEAD = 16;
 
     /**
@@ -34,10 +36,10 @@ public final class ContextAssembler {
      * @return 模型消息副本
      */
     public List<Message> assemble(Message system, SessionSnapshot snapshot, List<Message> current) {
-        /** 组装后的消息。 */
+        // 组装后的消息。
         List<Message> result = new ArrayList<>();
         result.add(system);
-        /** 已提交摘要。 */
+        // 已提交摘要。
         MemorySummary summary = snapshot.getSummary();
         if (summary != null) {
             result.add(new Message("memory:" + summary.getCoveredMessageCount(), Role.SYSTEM,
@@ -58,12 +60,12 @@ public final class ContextAssembler {
      * @return 保守估算 token 数
      */
     public int estimate(List<Message> messages, List<ModelToolDefinition> tools) {
-        /** 消息、工具及协议开销的累计估算。 */
+        // 消息、工具及协议开销的累计估算。
         long total = 0;
-        /** 当前待估算的模型消息。 */
+        // 当前待估算的模型消息。
         for (Message message : messages) {
             total += MESSAGE_OVERHEAD + bytes(message.getRole().name());
-            /** 当前消息的文本内容块。 */
+            // 当前消息的文本内容块。
             for (ContentBlock block : message.getContentBlocks()) {
                 if (block instanceof TextContentBlock text) {
                     total += bytes(text.getText());
@@ -75,21 +77,21 @@ public final class ContextAssembler {
                     throw new IllegalArgumentException("上下文包含未知内容块");
                 }
             }
-            /** 当前助手发出的工具调用。 */
+            // 当前助手发出的工具调用。
             for (ToolCall call : message.getToolCalls()) {
                 total += MESSAGE_OVERHEAD + bytes(call.getCallId()) + bytes(call.getName())
                         + bytes(call.getArgumentsJson());
             }
-            /** 当前工具执行结果。 */
+            // 当前工具执行结果。
             for (ToolResult result : message.getToolResults()) {
                 total += MESSAGE_OVERHEAD + bytes(result.getCallId()) + bytes(result.getContent());
             }
-            /** 当前协议元数据。 */
+            // 当前协议元数据。
             for (Map.Entry<String, String> entry : message.getProviderMetadata().entrySet()) {
                 total += bytes(entry.getKey()) + bytes(entry.getValue());
             }
         }
-        /** 当前模型可见的工具定义。 */
+        // 当前模型可见的工具定义。
         for (ModelToolDefinition tool : tools) {
             total += MESSAGE_OVERHEAD + bytes(tool.getName()) + bytes(tool.getDescription())
                     + bytes(tool.getParameterSchemaJson());

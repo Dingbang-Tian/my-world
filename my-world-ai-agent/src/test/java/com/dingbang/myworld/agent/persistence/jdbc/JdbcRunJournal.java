@@ -1,5 +1,10 @@
 package com.dingbang.myworld.agent.persistence.jdbc;
 
+import com.dingbang.myworld.agent.persistence.RecoveryArtifactRecord;
+import com.dingbang.myworld.agent.persistence.RecoveryCheckpoint;
+import com.dingbang.myworld.agent.persistence.PlanRecovery;
+import com.dingbang.myworld.agent.persistence.RecoveryRunRecord;
+
 import com.dingbang.myworld.agent.api.AgentEvent;
 import com.dingbang.myworld.agent.api.AgentEventType;
 import com.dingbang.myworld.agent.api.AgentRequest;
@@ -25,17 +30,13 @@ import com.dingbang.myworld.aiframework.model.ToolResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.dingbang.myworld.common.utils.lang.HashUtils;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.HashMap;
@@ -51,11 +52,17 @@ import java.util.UUID;
  * @since 2026/10/03
  */
 public final class JdbcRunJournal implements RecoveryJournal {
-    /** 已迁移数据库。 */
+    /**
+     * 已迁移数据库。
+     */
     private final AgentJdbcDatabase database;
-    /** JSON 编解码器。 */
+    /**
+     * JSON 编解码器。
+     */
     private final ObjectMapper mapper = new ObjectMapper();
-    /** 保留模型消息顺序的检查点编解码器。 */
+    /**
+     * 保留模型消息顺序的检查点编解码器。
+     */
     private final SessionExportCodec codec = new SessionExportCodec();
 
     /**
@@ -98,7 +105,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
     @Override
     public void start(String runId, String sessionId, AgentRequest request, String modelId,
                       String promptHash, String resumedFromRunId, String parentRunId, String rootRunId) {
-        /** 仅保存恢复所需输入，不保存模型客户端、凭据和附件字节。 */
+        // 仅保存恢复所需输入，不保存模型客户端、凭据和附件字节。
         ObjectNode input = mapper.createObjectNode();
         input.put("userText", request.getUserText());
         input.put("hasAttachments", !request.getAttachments().isEmpty());
@@ -134,7 +141,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
      */
     @Override
     public void event(AgentEvent event) {
-        /** 有界结构化事件载荷。 */
+        // 有界结构化事件载荷。
         ObjectNode payload = mapper.createObjectNode();
         if (event.getText() != null) payload.put("text", event.getText());
         if (event.getToolExecution() != null) {
@@ -179,9 +186,9 @@ public final class JdbcRunJournal implements RecoveryJournal {
      * @throws SQLException 数据库故障时
      */
     private void updatePlan(Connection connection, AgentEvent event) throws SQLException {
-        /** 计划载荷。 */
+        // 计划载荷。
         PlanEvent plan = event.getPlan();
-        /** 每个运行只允许一个顶层计划的标识。 */
+        // 每个运行只允许一个顶层计划的标识。
         String planId = event.getRunId() + ":plan";
         if (event.getType() == AgentEventType.PLAN_CREATED) {
             try (PreparedStatement statement = connection.prepareStatement(
@@ -237,7 +244,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
             statement.setString(3, call.getCallId());
             statement.setString(4, call.getName());
             statement.setString(5, call.getArgumentsJson());
-            statement.setString(6, sha256(call.getArgumentsJson()));
+            statement.setString(6, HashUtils.sha256(call.getArgumentsJson()));
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw persistence(exception);
@@ -252,7 +259,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
      */
     @Override
     public void toolCompleted(String runId, ToolResult result) {
-        /** 已确定的工具结果 JSON。 */
+        // 已确定的工具结果 JSON。
         String json = mapper.valueToTree(result).toString();
         try (Connection connection = database.open();
              PreparedStatement statement = connection.prepareStatement(
@@ -274,7 +281,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
      */
     @Override
     public void finish(AgentResult result) {
-        /** 不包含凭据的结果 JSON。 */
+        // 不包含凭据的结果 JSON。
         String json = mapper.valueToTree(result).toString();
         try (Connection connection = database.open();
              PreparedStatement statement = connection.prepareStatement(
@@ -301,7 +308,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
     @Override
     public void checkpoint(String runId, String sessionId, AgentRequest request,
                            long sessionVersion, int nextModelTurn, List<Message> exchange) {
-        /** 允许尚未结束的用户或工具交换。 */
+        // 允许尚未结束的用户或工具交换。
         String json = codec.encode(sessionId, request.getOwnerId(), request.getAppId(), request.getAgentId(),
                 ModelOptions.empty(), new SessionSnapshot(1, exchange));
         try (Connection connection = database.open();
@@ -350,16 +357,16 @@ public final class JdbcRunJournal implements RecoveryJournal {
      * @param appId 应用标识
      * @return 已提交产物记录
      */
-    public List<ArtifactRecord> artifacts(String runId, String ownerId, String appId) {
+    public List<RecoveryArtifactRecord> artifacts(String runId, String ownerId, String appId) {
         if (find(runId, ownerId, appId) == null) throw new IllegalArgumentException("未知的运行标识或归属不匹配");
-        /** 按发生顺序收集的产物。 */
-        List<ArtifactRecord> artifacts = new ArrayList<>();
+        // 按发生顺序收集的产物。
+        List<RecoveryArtifactRecord> artifacts = new ArrayList<>();
         try (Connection connection = database.open();
              PreparedStatement statement = connection.prepareStatement(
                      "SELECT path,operation,before_hash,after_hash FROM codegen_artifact WHERE run_id=? ORDER BY created_at,id")) {
             statement.setString(1, runId);
             try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) artifacts.add(new ArtifactRecord(runId, rows.getString(2),
+                while (rows.next()) artifacts.add(new RecoveryArtifactRecord(runId, rows.getString(2),
                         rows.getString(1), rows.getString(3), rows.getString(4)));
             }
             return List.copyOf(artifacts);
@@ -381,17 +388,17 @@ public final class JdbcRunJournal implements RecoveryJournal {
             statement.setString(1, runId);
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) return null;
-                /** 检查点历史版本。 */
+                // 检查点历史版本。
                 long version = rows.getLong(1);
-                /** 模型续接回合号。 */
+                // 模型续接回合号。
                 int nextTurn = rows.getInt(2);
-                /** 已记录的部分交换。 */
+                // 已记录的部分交换。
                 ImportedSession decoded = codec.decodeCheckpoint(rows.getString(3));
-                /** 可补充工具结果的消息副本。 */
+                // 可补充工具结果的消息副本。
                 List<Message> messages = new ArrayList<>(decoded.getMessages());
-                /** 最后一批助手工具调用。 */
+                // 最后一批助手工具调用。
                 List<ToolCall> calls = List.of();
-                /** 检查点中已有的工具结果标识。 */
+                // 检查点中已有的工具结果标识。
                 Set<String> knownResults = new HashSet<>();
                 for (Message message : messages) {
                     if (!message.getToolCalls().isEmpty()) {
@@ -400,21 +407,21 @@ public final class JdbcRunJournal implements RecoveryJournal {
                     }
                     for (ToolResult result : message.getToolResults()) knownResults.add(result.getCallId());
                 }
-                /** 已落库的确定工具结果。 */
+                // 已落库的确定工具结果。
                 Map<String, ToolResult> persisted = toolResults(connection, runId);
-                /** 可在完成步骤边界继续的计划。 */
+                // 可在完成步骤边界继续的计划。
                 PlanRecovery plan = planRecovery(runId);
                 if (!calls.isEmpty() && knownResults.isEmpty() && persisted.isEmpty()
                         && !hasToolExecutions(runId)) {
-                    /** 调用意图尚未落库，故可安全丢弃未执行的助手工具请求。 */
+                    // 调用意图尚未落库，故可安全丢弃未执行的助手工具请求。
                     messages.remove(messages.size() - 1);
                     return new RecoveryCheckpoint(version, nextTurn, List.copyOf(messages));
                 }
                 for (ToolCall call : calls) {
                     if (knownResults.contains(call.getCallId())) continue;
                     if (plan != null && "create_plan".equals(call.getName())
-                            && plan.call().getCallId().equals(call.getCallId())) continue;
-                    /** 仅复用数据库中明确完成的原调用结果。 */
+                            && plan.getCall().getCallId().equals(call.getCallId())) continue;
+                    // 仅复用数据库中明确完成的原调用结果。
                     ToolResult result = persisted.get(call.getCallId());
                     if (result == null) throw new IllegalStateException("NEEDS_REVIEW");
                     messages.add(new Message(runId + ":recovered-tool:" + call.getCallId(), Role.TOOL,
@@ -436,7 +443,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
      * @throws SQLException 查询失败时
      */
     private Map<String, ToolResult> toolResults(Connection connection, String runId) throws SQLException {
-        /** 已确定的工具结果。 */
+        // 已确定的工具结果。
         Map<String, ToolResult> results = new HashMap<>();
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT call_id,result_json FROM agent_tool_execution WHERE run_id=? AND status<>'STARTED'")) {
@@ -444,7 +451,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
                     try {
-                        /** 结构化结果 JSON。 */
+                        // 结构化结果 JSON。
                         JsonNode node = mapper.readTree(rows.getString(2));
                         results.put(rows.getString(1), new ToolResult(rows.getString(1),
                                 ToolResultStatus.valueOf(node.path("status").asText()),
@@ -472,19 +479,19 @@ public final class JdbcRunJournal implements RecoveryJournal {
             callQuery.setString(1, runId);
             try (ResultSet calls = callQuery.executeQuery()) {
                 if (!calls.next()) return null;
-                /** 原计划调用。 */
+                // 原计划调用。
                 ToolCall call = new ToolCall(calls.getString(1), "create_plan", calls.getString(2));
                 if (calls.next()) return null;
-                /** 按序保存的步骤状态。 */
+                // 按序保存的步骤状态。
                 List<PlanStepStatus> statuses = new ArrayList<>();
-                /** 按序保存的步骤结果。 */
+                // 按序保存的步骤结果。
                 List<String> results = new ArrayList<>();
                 try (PreparedStatement steps = connection.prepareStatement(
                         "SELECT s.status,s.result FROM agent_plan_step s JOIN agent_plan p ON p.id=s.plan_id WHERE p.run_id=? AND p.status='RUNNING' ORDER BY s.step_index")) {
                     steps.setString(1, runId);
                     try (ResultSet rows = steps.executeQuery()) {
                         while (rows.next()) {
-                            /** 当前步骤状态。 */
+                            // 当前步骤状态。
                             PlanStepStatus status = PlanStepStatus.valueOf(rows.getString(1));
                             if (status == PlanStepStatus.RUNNING) return null;
                             statuses.add(status);
@@ -526,7 +533,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
      * @return 转换状态的运行标识
      */
     private List<String> interruptRuns(boolean startup) {
-        /** 本次被转换的运行。 */
+        // 本次被转换的运行。
         List<String> affected = new ArrayList<>();
         try (Connection connection = database.open()) {
             connection.setAutoCommit(false);
@@ -537,9 +544,9 @@ public final class JdbcRunJournal implements RecoveryJournal {
                     while (rows.next()) affected.add(rows.getString(1));
                 }
                 for (String runId : affected) {
-                    /** 存在结果未知的工具意图。 */
+                    // 存在结果未知的工具意图。
                     boolean uncertain;
-                    /** 只有计划工具未完成且步骤处于安全边界时可继续。 */
+                    // 只有计划工具未完成且步骤处于安全边界时可继续。
                     boolean resumablePlan = planRecovery(runId) != null;
                     try (PreparedStatement tools = connection.prepareStatement(resumablePlan
                             ? "SELECT COUNT(*) FROM agent_tool_execution WHERE run_id=? AND status='STARTED' AND name<>'create_plan'"
@@ -583,7 +590,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
      * @param appId 应用
      * @return 运行记录，不存在或不属于调用方时为 null
      */
-    public RunRecord find(String runId, String ownerId, String appId) {
+    public RecoveryRunRecord find(String runId, String ownerId, String appId) {
         try (Connection connection = database.open();
              PreparedStatement statement = connection.prepareStatement(
                      "SELECT session_id,agent_id,request_id,status,request_json,resumed_from_run_id FROM agent_run WHERE id=? AND owner_key=? AND app_id=?")) {
@@ -592,9 +599,9 @@ public final class JdbcRunJournal implements RecoveryJournal {
             statement.setString(3, appId);
             try (ResultSet rows = statement.executeQuery()) {
                 if (!rows.next()) return null;
-                /** 原始输入 JSON。 */
+                // 原始输入 JSON。
                 JsonNode input = mapper.readTree(rows.getString(5));
-                return new RunRecord(runId, rows.getString(1), ownerId, appId, rows.getString(2),
+                return new RecoveryRunRecord(runId, rows.getString(1), ownerId, appId, rows.getString(2),
                         rows.getString(3), AgentResultStatus.valueOf(rows.getString(4)),
                         input.path("userText").asText(), input.path("hasAttachments").asBoolean(),
                         rows.getString(6));
@@ -640,7 +647,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
     public List<AgentEvent> events(String runId, String ownerId, String appId, long afterSequence) {
         if (afterSequence < 0) throw new IllegalArgumentException("事件序号不能为负数");
         if (find(runId, ownerId, appId) == null) throw new IllegalArgumentException("未知的运行标识或归属不匹配");
-        /** 按运行内序号读取的事件。 */
+        // 按运行内序号读取的事件。
         List<AgentEvent> events = new ArrayList<>();
         try (Connection connection = database.open();
              PreparedStatement statement = connection.prepareStatement(
@@ -649,11 +656,11 @@ public final class JdbcRunJournal implements RecoveryJournal {
             statement.setLong(2, afterSequence);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
-                    /** 当前结构化事件载荷。 */
+                    // 当前结构化事件载荷。
                     JsonNode payload = mapper.readTree(rows.getString(4));
-                    /** 事件类型。 */
+                    // 事件类型。
                     AgentEventType type = AgentEventType.valueOf(rows.getString(3));
-                    /** 工具阶段载荷。 */
+                    // 工具阶段载荷。
                     ToolExecutionEvent tool = null;
                     if (type == AgentEventType.TOOL_EXECUTION) {
                         tool = new ToolExecutionEvent(payload.path("callId").asText(),
@@ -661,12 +668,12 @@ public final class JdbcRunJournal implements RecoveryJournal {
                                 ToolExecutionPhase.valueOf(payload.path("phase").asText()),
                                 payload.has("toolResult") ? decodeToolResult(payload.path("toolResult")) : null);
                     }
-                    /** 用量载荷。 */
+                    // 用量载荷。
                     ModelTokenUsage usage = payload.has("usage") ? decodeUsage(payload.path("usage")) : null;
-                    /** 计划载荷。 */
+                    // 计划载荷。
                     PlanEvent plan = null;
                     if (payload.has("plan")) {
-                        /** 当前计划 JSON。 */
+                        // 当前计划 JSON。
                         JsonNode node = payload.path("plan");
                         plan = new PlanEvent(node.path("planName").asText(), node.path("stepNumber").asInt(),
                                 node.path("stepCount").asInt(), node.path("status").isNull() ? null
@@ -692,7 +699,7 @@ public final class JdbcRunJournal implements RecoveryJournal {
      * @return 运行结果
      */
     private static AgentResult decodeResult(JsonNode node) {
-        /** 错误节点。 */
+        // 错误节点。
         JsonNode errorNode = node.path("error");
         return new AgentResult(node.path("runId").asText(), node.path("sessionId").asText(),
                 node.path("requestId").asText(), AgentResultStatus.valueOf(node.path("status").asText()),
@@ -757,21 +764,6 @@ public final class JdbcRunJournal implements RecoveryJournal {
             }
         } catch (SQLException exception) {
             throw persistence(exception);
-        }
-    }
-
-    /**
-     * 计算工具参数的稳定 SHA-256 哈希。
-     *
-     * @param value 参数 JSON
-     * @return 小写十六进制哈希
-     */
-    private static String sha256(String value) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(value.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException(exception);
         }
     }
 

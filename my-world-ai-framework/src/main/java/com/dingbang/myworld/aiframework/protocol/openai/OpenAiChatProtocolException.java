@@ -1,6 +1,7 @@
 package com.dingbang.myworld.aiframework.protocol.openai;
 
 import com.dingbang.myworld.aiframework.api.ModelGatewayException;
+import lombok.Getter;
 
 /**
  * 表示 Chat 协议响应状态或流内容无效的异常。
@@ -8,9 +9,12 @@ import com.dingbang.myworld.aiframework.api.ModelGatewayException;
  * @author Sebastian
  * @since 2026/10/03
  */
+@Getter
 public final class OpenAiChatProtocolException extends ModelGatewayException {
 
-    /** HTTP 状态码，协议解析错误时为零。 */
+    /**
+     * HTTP 状态码，协议解析错误时为零。
+     */
     private final int httpStatus;
 
     /**
@@ -40,12 +44,4 @@ public final class OpenAiChatProtocolException extends ModelGatewayException {
         return "MODEL_ERROR";
     }
 
-    /**
-     * 返回 HTTP 状态码。
-     *
-     * @return HTTP 状态码，解析错误时为零
-     */
-    public int getHttpStatus() {
-        return httpStatus;
-    }
 }

@@ -3,7 +3,6 @@ package com.dingbang.myworld.common.utils.log.serializer;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonSerializer;
 import com.fasterxml.jackson.databind.SerializerProvider;
-import com.dingbang.myworld.common.utils.log.LogExclude;
 
 import java.io.IOException;
 
@@ -15,6 +14,9 @@ import java.io.IOException;
  */
 public class LogExcludeSerializer extends JsonSerializer<Object> {
 
+    /**
+     * 被排除日志内容的占位文本。
+     */
     private final String placeholder;
 
     public LogExcludeSerializer(String placeholder) {

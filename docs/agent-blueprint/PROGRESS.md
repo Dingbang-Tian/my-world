@@ -1,16 +1,16 @@
 # 工程进度与学习交接
 
-最后更新：2026/10/03（S18 已按用户要求改为 MySQL + MyBatis-Plus Service/Mapper，S19 恢复链路保持，等待学习复述）。
+最后更新：2026/10/04（S21 运行治理与排障已实现并通过离线验证，等待学习复述）。
 
 ## 1. 当前定位
 
 - 目标项目：`/Users/sebastian/myPorject/myWorld`。
 - 当前图纸：目标项目 `docs/agent-blueprint/` 工作副本；参考项目 `doc/myworld-agent-blueprint/` 保留为原始图纸。
-- 下一阶段：S20；S18、S19 及此前阶段的待回答问题仍保留。
-- 当前阶段已实现内容：S18 的 MySQL/MyBatis-Plus Service 与 Mapper、Flyway 迁移、会话与运行记录；S19 的工具意图/结果检查点、启动扫描、显式恢复与不确定副作用核查。详见 notes/S18.md 与 notes/S19.md。
+- 下一阶段：S22；S21 及此前阶段的待回答问题仍保留。
+- 当前阶段已实现内容：S18 的 MySQL/MyBatis-Plus 持久化、S19 的检查点恢复、S20 的 SDK 与 dev 入口，以及 S21 的运行关联审计、耗时与用量状态、脱敏调试。详见各阶段笔记。
 - 当前验证边界：默认 JDK 8 无法构建 Java 21 项目；普通沙箱禁止本地端口绑定和 Java 枚举进程树。完整测试已在允许本地 HTTP fixture 的本机执行环境通过；未调用真实供应商。
 - 基线只读观察：2026/10/01 开始时工作区干净，分支 feat-20260925-projInit-Sebastian。
-- 本次交付与证据：见 [notes/S18.md](notes/S18.md)、[notes/S19.md](notes/S19.md)。JDK 21 下完整 `mvn -q clean test` 116/116 通过、无失败/错误/跳过，覆盖真实 MySQL 8.0、H2 历史回归和本地模型/HTTP fixture；未调用真实供应商。
+- 本次交付与证据：见 [notes/S21.md](notes/S21.md)。JDK 21 下完整 `mvn -q clean package` 成功，122 个测试中 120 执行通过、2 个真实 MySQL 条件测试因未配置测试库跳过。S18 的真实 MySQL 8.0 历史证据见 notes/S18.md；本次未调用真实供应商。
 
 ## 2. 阶段状态
 
@@ -38,8 +38,8 @@
 | S17 | Embedding | 已验证 | 待回答 | [notes/S17.md](notes/S17.md) |
 | S18 | 数据库存储 | 已验证 | 待回答 | [notes/S18.md](notes/S18.md) |
 | S19 | 检查点恢复 | 已验证 | 待回答 | [notes/S19.md](notes/S19.md) |
-| S20 | SDK 消费与入口 | 未开始 | 未开始 | — |
-| S21 | 治理与排障 | 未开始 | 未开始 | — |
+| S20 | SDK 消费与入口 | 已验证 | 待回答 | [notes/S20.md](notes/S20.md) |
+| S21 | 治理与排障 | 已验证 | 待回答 | [notes/S21.md](notes/S21.md) |
 | S22 | 完整验收 | 未开始 | 未开始 | — |
 
 ## 3. 基线验证（S00 填写）
@@ -87,6 +87,8 @@
 | 2026/10/03 | S18 使用 Boot BOM 对应 H2 2.3.232、Flyway 11.7.2；文件库与内存仓库可配置替换；会话状态、顺序消息、摘要、运行、事件、工具、计划与产物分表 | `JdbcPersistenceRecoveryTest` 验证文件库重开、归属、租约、版本、请求键、事件和产物；全量 114/114 通过 | S18/S19 | 已验证 |
 | 2026/10/03 | S19 在工具调用前保存意图，结果后保存确定状态；启动扫描中断运行，未知副作用转 `NEEDS_REVIEW`；显式 resume 新 run 可复用确定工具结果和已完成计划步骤 | `JdbcPersistenceRecoveryTest` 验证结果落库后检查点前崩溃窗口、计划步骤边界、未知命令阻止重放、旧租约释放；全量 114/114 通过 | S19/S20 | 已验证 |
 | 2026/10/03 | 按用户要求将 S18 运行时存储改为 MySQL + MyBatis-Plus Service/Mapper；H2/JDBC 仅作为测试回归保留 | 真实 MySQL 8.0 集成测试验证迁移、跨上下文会话、请求唯一键、事件、恢复状态；启动模块 MySQL 装配测试通过 | S18/S19 | 已验证 |
+| 2026/10/04 | S20 提供普通 JAR SDK 与代码生成公开入口；dev 本地任务 API、结构化 SSE、幂等、取消和显式恢复；修复持久化 RUNNING 状态查询 | 独立临时 Maven 消费者 2/2；全项目 package 117 个测试中 115 执行通过、2 个 MySQL 条件测试因未配置数据库跳过；见 notes/S20.md | S20/S21 | 已验证 |
+| 2026/10/04 | S21 集中记录 trace/run/parent 关联、模型和工具耗时、审计阶段、用量状态及请求配置快照；可开关脱敏模型请求/SSE 调试 | `RunAuditInterceptorTest`；全项目 package 122 个测试中 120 执行通过、2 个 MySQL 条件测试跳过；见 notes/S21.md | S21/S22 | 已验证 |
 
 ## 5. S00 阶段交接（历史）
 
@@ -392,6 +394,40 @@
 待用户回答的问题：见 notes/S18.md 和 notes/S19.md
 下一会话最先读取的文件：本 PROGRESS.md、notes/S18.md、notes/S19.md、ARCHITECTURE.md、CHECKLIST.md、STEPS.md 的 S20
 下一步具体动作：按 S20 增加独立 SDK 消费者与本地开发入口，复用 AgentRecoveryService 和持久化状态/事件查询
+```
+
+## 12K. S20 阶段交接
+
+```text
+阶段：S20 SDK 消费者与应用入口
+目标与已跑通流程：独立普通 JAR 消费者创建 AgentService/CodegenService 并用假模型运行任务，复现源码留在 docs/agent-blueprint/examples/sdk-consumer；dev HTTP 创建任务 → 查询状态/产物 → 结构化 SSE 回放 → 显式取消或按 S19 安全边界恢复
+已改文件（路径/核心方法）：AgentSdk、CodegenSdk、CodegenService.agentService、CodegenTaskService、CodegenController、CodegenWebService；RecoveryJournal.findByRequestId 与 MyBatis Mapper；application-dev.yml；notes/S20.md
+新增依赖或配置：无新生产依赖；dev 默认绑定 127.0.0.1，ownerKey 来自 MYWORLD_CODEGEN_OWNER_KEY；codegen 仍须显式 enabled 和可信 workspace/modelId
+验证命令、结果和环境：JDK 21 下全项目 mvn -q clean package 成功，117 个测试中 115 执行通过、2 个 MySQL 条件测试跳过；独立临时 Maven 消费者 2/2 通过；无真实模型调用
+对照 CHECKLIST 的条目及证据：稳定 SDK/结构化事件、本地代码生成入口；CodegenControllerTest 与独立消费者，详见 notes/S20.md
+来源实现与新实现的差异：不让 HTTP 请求选择 workspace、工具或模板；网络断开默认不取消后台任务；恢复仍由 AgentRecoveryService 判定安全边界
+未完成工作／真实阻塞：新增 MySQL 请求键查询本次未在真实 MySQL 库重跑；多实例协调与身份系统不在当前 dev 入口；S21 治理指标和调试日志待做
+本阶段用户已理解的内容：待回答；工程通过不代表学习掌握
+待用户回答的问题：见 notes/S20.md
+下一会话最先读取的文件：本 PROGRESS.md、notes/S20.md、CHECKLIST.md、STEPS.md 的 S21
+下一步具体动作：按 S21 补齐结构化日志、trace 关联、耗时/usage/限制审计与调试脱敏开关
+```
+
+## 12L. S21 阶段交接
+
+```text
+阶段：S21 运行治理与排障
+目标与已跑通流程：runId 定位运行始末 → traceId/parentRunId 关联子运行 → model/tool 耗时和阶段定位故障 → usageStatus 区分缺失用量 → 按需开启脱敏请求与流事件调试
+已改文件（路径/核心方法）：RunAuditInterceptor.started/modelStarted/modelFinished/onEvent/finished；DefaultAgentRun 的模型、工具和终态审计接入；SafeModelDebugGateway；notes/S21.md
+新增依赖或配置：ai-framework 与 ai-agent 显式声明 slf4j-api；进程属性 myworld.agent.debug 默认为 false
+验证命令、结果和环境：JDK 21 下 mvn -q clean package 成功，122 个测试中 120 执行通过、2 个 MySQL 条件测试因未配置数据库跳过；未使用真实供应商
+对照 CHECKLIST 的条目及证据：F16、F17、日志脱敏/追踪/指标项；RunAuditInterceptorTest 与原有用量、取消、限额、选项隔离回归
+来源实现与新实现的差异：调试日志不打印原始 HTTP 请求或 SSE 文本；默认审计也不打印工具输出和异常原文，只保留定位所需元数据
+未完成工作／真实阻塞：真实 MySQL 新增请求键查询与真实供应商未在本阶段重跑；日志保留、集中采集和跨实例可视化属于部署或后续扩展
+本阶段用户已理解的内容：待回答；工程通过不代表学习掌握
+待用户回答的问题：见 notes/S21.md
+下一会话最先读取的文件：本 PROGRESS.md、notes/S21.md、CHECKLIST.md、STEPS.md 的 S22
+下一步具体动作：按 S22 逐项收敛完整验收、确定性回归与交付说明
 ```
 
 ## 13. 后续阶段交接模板

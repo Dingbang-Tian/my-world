@@ -1,5 +1,7 @@
 package com.dingbang.myworld.aiapp.codegen.api;
 
+import lombok.Value;
+
 import java.util.Objects;
 
 /**
@@ -8,8 +10,48 @@ import java.util.Objects;
  * @author Sebastian
  * @since 2026/10/03
  */
-public record CommandReport(String runId, String command, String cwd, String shell, String status,
-                            Integer exitCode, String output, boolean truncated) {
+@Value
+public class CommandReport {
+
+    /**
+     * Agent 运行标识。
+     */
+    String runId;
+
+    /**
+     * 调用方请求执行的命令文本。
+     */
+    String command;
+
+    /**
+     * 工作区内的相对执行目录。
+     */
+    String cwd;
+
+    /**
+     * 实际执行命令的 shell。
+     */
+    String shell;
+
+    /**
+     * COMPLETED、TIMED_OUT、CANCELLED 或 FAILED。
+     */
+    String status;
+
+    /**
+     * 正常结束时的退出码，其余情况为空。
+     */
+    Integer exitCode;
+
+    /**
+     * 有界合并输出。
+     */
+    String output;
+
+    /**
+     * 输出是否因达到限制而截断。
+     */
+    boolean truncated;
     /**
      * 校验命令报告的必需字段。
      *
@@ -22,12 +64,21 @@ public record CommandReport(String runId, String command, String cwd, String she
      * @param output 最多保留 16000 字节的合并输出
      * @param truncated 输出是否截断
      */
-    public CommandReport {
+    public CommandReport(String runId, String command, String cwd, String shell, String status,
+                         Integer exitCode, String output, boolean truncated) {
         Objects.requireNonNull(runId, "运行标识不能为空");
         Objects.requireNonNull(command, "命令不能为空");
         Objects.requireNonNull(cwd, "执行目录不能为空");
         Objects.requireNonNull(shell, "shell 不能为空");
         Objects.requireNonNull(status, "状态不能为空");
         Objects.requireNonNull(output, "输出不能为空");
+        this.runId = runId;
+        this.command = command;
+        this.cwd = cwd;
+        this.shell = shell;
+        this.status = status;
+        this.exitCode = exitCode;
+        this.output = output;
+        this.truncated = truncated;
     }
 }

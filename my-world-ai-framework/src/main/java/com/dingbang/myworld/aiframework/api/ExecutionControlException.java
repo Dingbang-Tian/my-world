@@ -1,13 +1,18 @@
 package com.dingbang.myworld.aiframework.api;
 
+import lombok.Getter;
+
 /**
  * 表示取消、截止时间或预算引起的执行停止。
  *
  * @author Sebastian
  * @since 2026/10/03
  */
+@Getter
 public final class ExecutionControlException extends RuntimeException {
-    /** 可供调用方分类的稳定错误码。 */
+    /**
+     * 可供调用方分类的稳定错误码。
+     */
     private final String code;
 
     /**
@@ -21,12 +26,4 @@ public final class ExecutionControlException extends RuntimeException {
         this.code = code;
     }
 
-    /**
-     * 返回停止类别。
-     *
-     * @return 稳定错误码
-     */
-    public String getCode() {
-        return code;
-    }
 }

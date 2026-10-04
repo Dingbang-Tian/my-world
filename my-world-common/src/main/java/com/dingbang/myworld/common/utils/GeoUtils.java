@@ -1,8 +1,5 @@
 package com.dingbang.myworld.common.utils;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
 
 /**
  * 地理坐标计算工具类。
@@ -39,11 +36,11 @@ public class GeoUtils {
      * @param points 围栏多边形
      * @return 是否在围栏中
      */
-    public static boolean isInPolygon(Point point, Point[] points) {
+    public static boolean isInPolygon(GeoPoint point, GeoPoint[] points) {
         int nCross = 0;
         for (int i = 0; i < points.length; i++) {
-            Point p1 = points[i];
-            Point p2 = points[(i + 1) % points.length];
+            GeoPoint p1 = points[i];
+            GeoPoint p2 = points[(i + 1) % points.length];
             if(p1 == null || p2 == null){
                 continue;
             }
@@ -75,10 +72,10 @@ public class GeoUtils {
     /**
      * 解析围栏
      */
-    public static Point[] parseRange(String range) {
+    public static GeoPoint[] parseRange(String range) {
         // 解析围栏信息
         String[] pieces = range.split(";");
-        Point[] points = new Point[pieces.length];
+        GeoPoint[] points = new GeoPoint[pieces.length];
         for (int i = 0, count = pieces.length; i < count; i++) {
             String[] location = pieces[i].split(",");
             if (location.length != 2) {
@@ -86,30 +83,10 @@ public class GeoUtils {
             } else {
                 double lon = Double.parseDouble(location[0]);
                 double lat = Double.parseDouble(location[1]);
-                points[i] = new Point(lat, lon);
+                points[i] = new GeoPoint(lat, lon);
             }
         }
         return points;
     }
 
-    /**
-     * 地理坐标点。
-     *
-     * @author Sebastian
-     * @since 2026/09/25
-     */
-    @Data
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class Point {
-        /**
-         * 纬度
-         */
-        private double lat;
-
-        /**
-         * 纬度
-         */
-        private double lon;
-    }
 }

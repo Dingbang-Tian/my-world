@@ -25,7 +25,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * @since 2026/10/03
  */
 class HttpEmbeddingGatewayTest {
-    /** JSON 测试解析器。 */
+    /**
+     * JSON 测试解析器。
+     */
     private final ObjectMapper mapper = new ObjectMapper();
 
     /**
@@ -35,9 +37,9 @@ class HttpEmbeddingGatewayTest {
      */
     @Test
     void openAiBatchIndexesAndUsage() throws Exception {
-        /** 收到的请求体。 */
+        // 收到的请求体。
         List<JsonNode> requests = new ArrayList<>();
-        /** 本地 fixture 服务。 */
+        // 本地 fixture 服务。
         HttpServer server = server();
         server.createContext("/openai", exchange -> {
             requests.add(mapper.readTree(exchange.getRequestBody().readAllBytes()));
@@ -45,16 +47,16 @@ class HttpEmbeddingGatewayTest {
         });
         server.start();
         try {
-            /** 当前模型网关。 */
+            // 当前模型网关。
             HttpEmbeddingGateway gateway = gateway(server);
-            /** 两个文本输入的响应。 */
+            // 两个文本输入的响应。
             EmbeddingResult result = gateway.embed(new EmbeddingRequest("text",
                     List.of(EmbeddingInput.text("甲"), EmbeddingInput.text("乙")), 2, false));
-            assertThat(result.vectors()).extracting(EmbeddingVector::index).containsExactly(0, 1);
-            assertThat(result.vectors().get(0).values()).containsExactly(0.1, 0.2);
-            assertThat(result.vectors().get(0).dimension()).isEqualTo(2);
-            assertThat(result.inputTokens()).isEqualTo(7L);
-            assertThat(result.usage().totalTokens()).isEqualTo(7L);
+            assertThat(result.getVectors()).extracting(EmbeddingVector::getIndex).containsExactly(0, 1);
+            assertThat(result.getVectors().get(0).getValues()).containsExactly(0.1, 0.2);
+            assertThat(result.getVectors().get(0).getDimension()).isEqualTo(2);
+            assertThat(result.getInputTokens()).isEqualTo(7L);
+            assertThat(result.getUsage().getTotalTokens()).isEqualTo(7L);
             assertThat(requests.get(0).path("input").get(0).asText()).isEqualTo("甲");
             assertThat(requests.get(0).path("dimensions").asInt()).isEqualTo(2);
         } finally { server.stop(0); }
@@ -67,9 +69,9 @@ class HttpEmbeddingGatewayTest {
      */
     @Test
     void dashScopeFusionAndMediaSources() throws Exception {
-        /** 收到的请求体。 */
+        // 收到的请求体。
         List<JsonNode> requests = new ArrayList<>();
-        /** 本地 fixture 服务。 */
+        // 本地 fixture 服务。
         HttpServer server = server();
         server.createContext("/dash", exchange -> {
             requests.add(mapper.readTree(exchange.getRequestBody().readAllBytes()));
@@ -77,19 +79,19 @@ class HttpEmbeddingGatewayTest {
         });
         server.start();
         try {
-            /** 当前模型网关。 */
+            // 当前模型网关。
             HttpEmbeddingGateway gateway = gateway(server);
-            /** 含文本、内存图片与远程视频的语义单元。 */
-            EmbeddingInput input = new EmbeddingInput(List.of(new EmbeddingInput.Part(EmbeddingInput.Type.TEXT, "画面"),
-                    EmbeddingInput.media(EmbeddingInput.Type.IMAGE, "image/png", new byte[]{1, 2}),
-                    new EmbeddingInput.Part(EmbeddingInput.Type.VIDEO, "https://example.com/clip.mp4")));
-            /** 融合结果。 */
+            // 含文本、内存图片与远程视频的语义单元。
+            EmbeddingInput input = new EmbeddingInput(List.of(new EmbeddingPart(EmbeddingInputType.TEXT, "画面"),
+                    EmbeddingInput.media(EmbeddingInputType.IMAGE, "image/png", new byte[]{1, 2}),
+                    new EmbeddingPart(EmbeddingInputType.VIDEO, "https://example.com/clip.mp4")));
+            // 融合结果。
             EmbeddingResult result = gateway.embed(new EmbeddingRequest("multi", List.of(input), 2, true));
-            assertThat(result.vectors().get(0).type()).isEqualTo("fusion");
-            assertThat(result.requestId()).isEqualTo("d1");
-            assertThat(result.inputTokens()).isEqualTo(4L);
-            assertThat(result.usage().imageTokens()).isEqualTo(5L);
-            assertThat(result.usage().totalTokens()).isEqualTo(9L);
+            assertThat(result.getVectors().get(0).getType()).isEqualTo("fusion");
+            assertThat(result.getRequestId()).isEqualTo("d1");
+            assertThat(result.getInputTokens()).isEqualTo(4L);
+            assertThat(result.getUsage().getImageTokens()).isEqualTo(5L);
+            assertThat(result.getUsage().getTotalTokens()).isEqualTo(9L);
             assertThat(requests.get(0).path("input").path("contents").get(1).path("image").asText())
                     .startsWith("data:image/png;base64,");
             assertThat(requests.get(0).path("input").path("contents").get(2).path("video").asText())
@@ -105,11 +107,11 @@ class HttpEmbeddingGatewayTest {
      */
     @Test
     void rejectsMediaBeforeNetworkAndInvalidResponses() throws Exception {
-        /** 网络请求计数。 */
+        // 网络请求计数。
         AtomicInteger calls = new AtomicInteger();
-        /** 返回状态码。 */
+        // 返回状态码。
         AtomicInteger status = new AtomicInteger(200);
-        /** 本地 fixture 服务。 */
+        // 本地 fixture 服务。
         HttpServer server = server();
         server.createContext("/openai", exchange -> {
             calls.incrementAndGet();
@@ -117,11 +119,11 @@ class HttpEmbeddingGatewayTest {
         });
         server.start();
         try {
-            /** 当前模型网关。 */
+            // 当前模型网关。
             HttpEmbeddingGateway gateway = gateway(server);
-            /** 图片输入。 */
-            EmbeddingInput media = new EmbeddingInput(List.of(new EmbeddingInput.Part(
-                    EmbeddingInput.Type.IMAGE, "https://example.com/x.png")));
+            // 图片输入。
+            EmbeddingInput media = new EmbeddingInput(List.of(new EmbeddingPart(
+                    EmbeddingInputType.IMAGE, "https://example.com/x.png")));
             assertThatThrownBy(() -> gateway.embed(new EmbeddingRequest("text", List.of(media), null, false)))
                     .isInstanceOf(ModelGatewayException.class).hasMessageContaining("只接受独立文本");
             assertThat(calls).hasValue(0);
@@ -132,7 +134,7 @@ class HttpEmbeddingGatewayTest {
             assertThatThrownBy(() -> gateway.embed(new EmbeddingRequest("text",
                     List.of(EmbeddingInput.text("hi")), null, false)))
                     .isInstanceOf(ModelGatewayException.class).hasMessageContaining("429");
-            assertThatThrownBy(() -> new EmbeddingInput.Part(EmbeddingInput.Type.IMAGE, "file:///tmp/x.png"))
+            assertThatThrownBy(() -> new EmbeddingPart(EmbeddingInputType.IMAGE, "file:///tmp/x.png"))
                     .isInstanceOf(IllegalArgumentException.class);
         } finally { server.stop(0); }
     }
@@ -144,12 +146,12 @@ class HttpEmbeddingGatewayTest {
      * @return 双模型向量网关
      */
     private static HttpEmbeddingGateway gateway(HttpServer server) {
-        /** 测试服务的主机端口。 */
+        // 测试服务的主机端口。
         String base = "http://127.0.0.1:" + server.getAddress().getPort();
         return new HttpEmbeddingGateway(List.of(
-                new EmbeddingModelConfig("text", EmbeddingModelConfig.Protocol.OPENAI,
+                new EmbeddingModelConfig("text", EmbeddingProtocol.OPENAI,
                         URI.create(base + "/openai"), "text-wire", "key", null),
-                new EmbeddingModelConfig("multi", EmbeddingModelConfig.Protocol.DASHSCOPE,
+                new EmbeddingModelConfig("multi", EmbeddingProtocol.DASHSCOPE,
                         URI.create(base + "/dash"), "qwen3-vl-embedding", "key", null, true, true)));
     }
 
@@ -170,7 +172,7 @@ class HttpEmbeddingGatewayTest {
      * @throws IOException 发送失败时
      */
     private static void respond(HttpExchange exchange, int status, String body) throws IOException {
-        /** UTF-8 响应内容。 */
+        // UTF-8 响应内容。
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.sendResponseHeaders(status, bytes.length);
         try (var output = exchange.getResponseBody()) { output.write(bytes); }

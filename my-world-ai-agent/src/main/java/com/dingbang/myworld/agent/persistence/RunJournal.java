@@ -15,25 +15,10 @@ import java.util.List;
  * @since 2026/10/03
  */
 public interface RunJournal {
-    /** 不启用持久化时的空实现。 */
-    RunJournal NONE = new RunJournal() {
-        /** {@inheritDoc} */
-        @Override public void start(String runId, String sessionId, AgentRequest request,
-                                    String modelId, String promptHash, String resumedFromRunId) { }
-        /** {@inheritDoc} */
-        @Override public void event(AgentEvent event) { }
-        /** {@inheritDoc} */
-        @Override public void toolStarted(String runId, ToolCall call) { }
-        /** {@inheritDoc} */
-        @Override public void toolCompleted(String runId, ToolResult result) { }
-        /** {@inheritDoc} */
-        @Override public void finish(AgentResult result) { }
-        /** {@inheritDoc} */
-        @Override public void checkpoint(String runId, String sessionId, AgentRequest request,
-                                         long sessionVersion, int nextModelTurn, List<Message> exchange) { }
-        /** {@inheritDoc} */
-        @Override public void artifact(String runId, String operation, String path, String hash) { }
-    };
+    /**
+     * 不启用持久化时的空实现。
+     */
+    RunJournal NONE = new NoopRunJournal();
 
     /**
      * 在模型或工具执行前登记本次运行。

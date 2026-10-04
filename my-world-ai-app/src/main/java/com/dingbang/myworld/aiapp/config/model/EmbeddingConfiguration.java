@@ -1,5 +1,7 @@
 package com.dingbang.myworld.aiapp.config.model;
 
+import com.dingbang.myworld.aiframework.embedding.EmbeddingProtocol;
+
 import com.dingbang.myworld.aiframework.embedding.EmbeddingGateway;
 import com.dingbang.myworld.aiframework.embedding.EmbeddingModelConfig;
 import com.dingbang.myworld.aiframework.embedding.HttpEmbeddingGateway;
@@ -33,15 +35,15 @@ public class EmbeddingConfiguration {
     public EmbeddingGateway embeddingGateway(EmbeddingProperties properties) {
         if (properties.getModels() == null || properties.getModels().isEmpty())
             throw new IllegalArgumentException("启用向量网关时必须配置模型");
-        /** 待注册的模型列表。 */
+        // 待注册的模型列表。
         List<EmbeddingModelConfig> configs = new ArrayList<>();
-        for (Map.Entry<String, EmbeddingProperties.ModelProperties> entry : properties.getModels().entrySet()) {
-            /** 当前模型属性。 */
-            EmbeddingProperties.ModelProperties model = entry.getValue();
-            /** 显式选择的向量协议。 */
-            EmbeddingModelConfig.Protocol protocol = switch (model.getProtocol().toLowerCase()) {
-                case "openai" -> EmbeddingModelConfig.Protocol.OPENAI;
-                case "dashscope" -> EmbeddingModelConfig.Protocol.DASHSCOPE;
+        for (Map.Entry<String, EmbeddingModelProperties> entry : properties.getModels().entrySet()) {
+            // 当前模型属性。
+            EmbeddingModelProperties model = entry.getValue();
+            // 显式选择的向量协议。
+            EmbeddingProtocol protocol = switch (model.getProtocol().toLowerCase()) {
+                case "openai" -> EmbeddingProtocol.OPENAI;
+                case "dashscope" -> EmbeddingProtocol.DASHSCOPE;
                 default -> throw new IllegalArgumentException("未知向量协议: " + model.getProtocol());
             };
             configs.add(new EmbeddingModelConfig(entry.getKey(), protocol, URI.create(model.getEndpoint()),

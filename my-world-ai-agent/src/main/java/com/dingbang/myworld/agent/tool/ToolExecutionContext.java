@@ -32,7 +32,9 @@ public final class ToolExecutionContext {
      * 调用截止时刻；未设置时可为 null。
      */
     private final Instant deadline;
-    /** 由运行时共享的协作取消信号。 */
+    /**
+     * 由运行时共享的协作取消信号。
+     */
     private final CancellationToken cancellation;
 
     /**

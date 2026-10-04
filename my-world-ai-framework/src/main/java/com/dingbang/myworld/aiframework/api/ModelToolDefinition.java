@@ -13,11 +13,17 @@ import java.util.Objects;
  */
 @Data
 public final class ModelToolDefinition {
-    /** 工具名称。 */
+    /**
+     * 工具名称。
+     */
     private final String name;
-    /** 工具用途。 */
+    /**
+     * 工具用途。
+     */
     private final String description;
-    /** 参数的 JSON Schema 文本。 */
+    /**
+     * 参数的 JSON Schema 文本。
+     */
     private final String parameterSchemaJson;
 
     /**

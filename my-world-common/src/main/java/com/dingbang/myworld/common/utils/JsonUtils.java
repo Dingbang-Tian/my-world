@@ -1,7 +1,6 @@
 package com.dingbang.myworld.common.utils;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
-import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.JsonParser;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.*;
@@ -31,13 +30,28 @@ import java.util.function.Supplier;
  */
 @Slf4j
 public class JsonUtils {
+    /**
+     * 默认 JSON 对象映射器。
+     */
     private static ObjectMapper mapper;
+
+    /**
+     * 返回 JSON 转换器共用的映射器。
+     *
+     * @return 已初始化的对象映射器
+     */
+    static ObjectMapper mapper() {
+        return mapper;
+    }
 
     /**
      * 不序列话null等。降低序列化大小.存储日志等场景使用
      */
     private static ObjectMapper shortMapper;
 
+    /**
+     * 敏感字段脱敏使用的对象映射器。
+     */
     private final static ObjectMapper SENSITIVE_MAPPER;
 
     /**
@@ -349,33 +363,5 @@ public class JsonUtils {
 
 
 
-    /**
-     * 将字符串恢复为对象后进行序列化。
-     *
-     * @author Sebastian
-     * @since 2026/09/25
-     */
-    public static class ReadValueAsObject extends JsonSerializer<String> {
-        @Override
-        public void serialize(String s, JsonGenerator jsonGenerator, SerializerProvider serializerProvider) throws IOException {
-            try {
-                jsonGenerator.writeObject(mapper);
-            } catch (IOException e) {
-                throw e;
-            }
-        }
-    }
 
-    /**
-     * 将对象转换为字符串后进行反序列化。
-     *
-     * @author Sebastian
-     * @since 2026/09/25
-     */
-    public static class WriteAsString extends JsonDeserializer<String> {
-        @Override
-        public String deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
-            return mapper.writeValueAsString(p.readValueAs(Object.class));
-        }
-    }
 }

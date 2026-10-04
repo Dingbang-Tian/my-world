@@ -2,10 +2,6 @@ package com.dingbang.myworld.agent.persistence;
 
 import com.dingbang.myworld.agent.api.AgentEvent;
 import com.dingbang.myworld.agent.api.AgentResult;
-import com.dingbang.myworld.agent.api.AgentResultStatus;
-import com.dingbang.myworld.agent.orchestration.PlanStepStatus;
-import com.dingbang.myworld.aiframework.model.Message;
-import com.dingbang.myworld.aiframework.model.ToolCall;
 
 import java.util.List;
 
@@ -24,7 +20,19 @@ public interface RecoveryJournal extends RunJournal {
      * @param appId 应用
      * @return 运行记录；不存在时为空
      */
-    RunRecord find(String runId, String ownerId, String appId);
+    RecoveryRunRecord find(String runId, String ownerId, String appId);
+
+    /**
+     * 按归属和请求幂等标识查询运行。
+     *
+     * @param ownerId 所有者
+     * @param appId 应用
+     * @param requestId 请求幂等标识
+     * @return 已登记运行；不存在时为空
+     */
+    default RecoveryRunRecord findByRequestId(String ownerId, String appId, String requestId) {
+        return null;
+    }
 
     /**
      * 读取已确定的工具结果检查点。
@@ -58,7 +66,7 @@ public interface RecoveryJournal extends RunJournal {
      * @param appId 应用
      * @return 产物记录
      */
-    List<ArtifactRecord> artifacts(String runId, String ownerId, String appId);
+    List<RecoveryArtifactRecord> artifacts(String runId, String ownerId, String appId);
 
     /**
      * 按归属读取最终结果。
@@ -95,59 +103,7 @@ public interface RecoveryJournal extends RunJournal {
      */
     List<String> interruptAbandoned();
 
-    /**
-     * 保存恢复决策所需的运行信息。
-     *
-     * @param runId 运行标识
-     * @param sessionId 会话标识
-     * @param ownerId 所有者
-     * @param appId 应用
-     * @param agentId Agent
-     * @param requestId 原请求标识
-     * @param status 运行状态
-     * @param userText 原用户输入
-     * @param hasAttachments 原请求是否含附件
-     * @param resumedFromRunId 来源运行
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    record RunRecord(String runId, String sessionId, String ownerId, String appId,
-                     String agentId, String requestId, AgentResultStatus status,
-                     String userText, boolean hasAttachments, String resumedFromRunId) { }
 
-    /**
-     * 保存可继续模型调用的已确认消息边界。
-     *
-     * @param sessionVersion 开始时的会话版本
-     * @param nextModelTurn 下一模型回合编号
-     * @param exchange 已确认的部分交换
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    record RecoveryCheckpoint(long sessionVersion, int nextModelTurn, List<Message> exchange) { }
 
-    /**
-     * 保存可复用的计划步骤状态。
-     *
-     * @param call 原计划工具调用
-     * @param statuses 按序保存的步骤状态
-     * @param results 按序保存的步骤结果
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    record PlanRecovery(ToolCall call, List<PlanStepStatus> statuses, List<String> results) { }
 
-    /**
-     * 保存不包含文件内容的产物元数据。
-     *
-     * @param runId 运行标识
-     * @param operation 操作类型
-     * @param path 相对路径
-     * @param beforeHash 删除前哈希
-     * @param afterHash 写入后哈希
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    record ArtifactRecord(String runId, String operation, String path,
-                          String beforeHash, String afterHash) { }
 }

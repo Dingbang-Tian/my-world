@@ -1,5 +1,7 @@
 package com.dingbang.myworld.aiframework.embedding;
 
+import lombok.Value;
+
 import java.util.List;
 
 /**
@@ -8,7 +10,28 @@ import java.util.List;
  * @author Sebastian
  * @since 2026/10/03
  */
-public record EmbeddingResult(String modelId, String requestId, List<EmbeddingVector> vectors, EmbeddingUsage usage) {
+@Value
+public class EmbeddingResult {
+
+    /**
+     * 本地模型标识。
+     */
+    String modelId;
+
+    /**
+     * 供应商请求标识，可为空。
+     */
+    String requestId;
+
+    /**
+     * 按输入索引排列的向量结果。
+     */
+    List<EmbeddingVector> vectors;
+
+    /**
+     * 供应商报告的可选用量。
+     */
+    EmbeddingUsage usage;
     /**
      * 固定结果快照。
      *
@@ -17,10 +40,13 @@ public record EmbeddingResult(String modelId, String requestId, List<EmbeddingVe
      * @param vectors 按输入索引排列的向量
      * @param usage 供应商报告的用量，可为空
      */
-    public EmbeddingResult {
+    public EmbeddingResult(String modelId, String requestId, List<EmbeddingVector> vectors, EmbeddingUsage usage) {
         if (modelId == null || modelId.isBlank() || vectors == null || vectors.isEmpty())
             throw new IllegalArgumentException("向量结果无效");
-        vectors = List.copyOf(vectors);
+        this.modelId = modelId;
+        this.requestId = requestId;
+        this.vectors = List.copyOf(vectors);
+        this.usage = usage;
     }
 
     /**
@@ -28,5 +54,7 @@ public record EmbeddingResult(String modelId, String requestId, List<EmbeddingVe
      *
      * @return 输入 token 数，供应商未报告时为 null
      */
-    public Long inputTokens() { return usage == null ? null : usage.inputTokens(); }
+    public Long getInputTokens() {
+        return usage == null ? null : usage.getInputTokens();
+    }
 }

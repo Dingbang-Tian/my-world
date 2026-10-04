@@ -23,8 +23,8 @@
 | F13 | 子 Agent 定义、独立会话、结果回传 | executeSubAgentTool、CreateSubAgentTool | ai-agent，S14 | `CreateSubAgentTool`、`SubAgentRunner`、`DefaultAgentRun.startSubAgent`；`SubAgentExecutionTest` 验证独立历史、父工具子集、深度、失败、取消及预算；`CodegenServiceTest.delegatesReadOnlyCodeReviewToSubAgent` 验证实际只读文件审查；完整 89/89 通过 |
 | F14 | 模型/会话/单次调用选项与覆盖 | LLMModel、AgentClient、AgentClientSession | ai-framework/agent，S07/S09/S16 | `ModelOptions` 逐层覆盖温度、输出上限、推理强度与开关；`RoutedModelGateway` 按 modelId 跨协议路由；`MultiProtocolGatewayTest` 与 `OpenAiChatGatewayTest` 验证调用隔离，真实供应商待验证 |
 | F15 | thinking 配置、返回的 reasoning 内容和协议元数据 | 各模型、Message.think/thinkSignature | ai-framework，S07/S16 | Chat 保存/可选回传 `reasoning_content`；Responses 保存加密推理项；Anthropic 保存 `thinking`/签名，旧无签名历史仅显式开启回传；Qwen 推理开关显式配置并有 fixture，见 notes/S16.md |
-| F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | S07 解析 usage 尾块，发 `UsageReported`/Agent USAGE；S14 `DefaultAgentRun` 用 `runId:model:turnNumber` 作为 modelCallId，按调用标识去重汇总父子已完成回合；`SubAgentExecutionTest.delegatesReadOnlyReviewAndKeepsHistoriesSeparate` 验证父最终用量含子级且不双算；S21 指标待完成 |
-| F17 | 可开关的请求与 SSE 调试信息 | LLMRequestDebugLogger | ai-framework，S07/S21 | 待完成 |
+| F16 | Token 用量回调、查询和汇总 | TokenUsage、LLMResult、AgentSessionResult | ai-framework/agent，S07/S14/S21 | `DefaultAgentRun` 按 modelCallId 去重汇总父子已报告用量；`RunAuditInterceptor` 记录单次及最终合计、`unknown/partial/reported` 状态，未报告不按零处理；`AgentRunControlTest`、`SubAgentExecutionTest` 与 notes/S21.md 验证 |
+| F17 | 可开关的请求与 SSE 调试信息 | LLMRequestDebugLogger | ai-framework，S07/S21 | `SafeModelDebugGateway` 由 `-Dmyworld.agent.debug=true` 启用，只记录请求选项、消息/工具数量和流事件类型；内容脱敏。`RunAuditInterceptorTest.modelDebugOmitsRequestAndStreamContent` 验证 |
 | F18 | 环境上下文提示、附件与多模态消息 | buildSystemContext、MessageAttachment 等 | agent/ai-framework/codegen，S10/S16 | `AgentRequest`、`MediaContentBlock`、`SessionExportCodec` 支持有界图片附件；三协议图片能力与不支持类型拒绝见 notes/S16.md；环境上下文由可信系统提示词/配置模板提供，音频/视频/文档聊天尚未支持 |
 
 “保留”指能力与有效行为，不要求兼容 Agent4J 所有类名、错误行为或 JSON 私有实现。若对参考导出 JSON 提供导入支持，必须专门列格式版本与迁移测试；第一版默认只保证新系统自身的导出/导入，不冒称兼容旧格式。
@@ -84,7 +84,7 @@
 
 ## 5. 必做企业级基础待办（纳入 S00–S22）
 
-- [ ] 稳定 SDK 与结构化事件，不暴露供应商客户端类型。
+- [x] 稳定 SDK 与结构化事件，不暴露供应商客户端类型。`AgentSdk`、`CodegenSdk` 的独立 Maven 消费者和 dev SSE 测试见 notes/S20.md。
 - [ ] ModelGateway、Tool、PromptRepository、SessionRepository 等扩展契约；至少模型和存储具备可替换实现。
 - [ ] 应用级 AgentDefinition、modelId、toolIds、skillIds 和提示词覆盖。
 - [ ] 运行次数/工具次数/时间/输出/子层级限制，可被应用配置收紧。
@@ -94,10 +94,10 @@
 - [ ] 完整会话、摘要、运行事件、工具结果、计划步骤和产物持久化。
 - [x] requestId 数据库唯一约束；不将其解释为外部副作用 exactly-once。见 `MybatisMysqlPersistenceTest` 和历史回归 `JdbcPersistenceRecoveryTest.rejectsConcurrentLeaseAndDuplicateRequest`。
 - [x] 启动中断标记与显式恢复；未知副作用为 `NEEDS_REVIEW`，不盲目重跑。见 `JdbcPersistenceRecoveryTest`。
-- [ ] 日志脱敏、追踪关联、Token/耗时指标、配置和模板 hash 记录。
+- [x] 日志脱敏、追踪关联、Token/耗时指标、配置和模板 hash 记录。见 `RunAuditInterceptor`、`SafeModelDebugGateway`、`RunAuditInterceptorTest` 和 notes/S21.md。
 - [ ] 确定性回归案例、协议契约测试、SDK 消费者 smoke、平台/供应商验证边界。
 - [x] Flyway MySQL V1 迁移脚本及真实 MySQL 跨上下文继续会话测试；H2/JDBC 历史回归保留在测试目录，见 notes/S18.md。
-- [ ] 对外 demo 入口默认仅本地/开发配置启用，身份来源清晰。
+- [x] 对外代码生成入口默认按配置启用，身份来源清晰。`CodegenController` 仅在 `my-world.codegen.enabled=true` 时注册，ownerKey 来自服务端配置；本地开发仍可通过 dev profile 提供该配置，见 notes/S20.md。
 
 ## 6. 后续扩展待办（不算第一版功能缺失）
 

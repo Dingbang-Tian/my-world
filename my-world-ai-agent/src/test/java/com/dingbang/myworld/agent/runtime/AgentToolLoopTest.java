@@ -9,13 +9,8 @@ import com.dingbang.myworld.agent.api.AgentResultStatus;
 import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.skill.AgentSkill;
 import com.dingbang.myworld.agent.prompt.PromptTemplateRegistry;
-import com.dingbang.myworld.agent.tool.Tool;
-import com.dingbang.myworld.agent.tool.ToolExecutionContext;
-import com.dingbang.myworld.agent.tool.ToolExecutionResult;
 import com.dingbang.myworld.agent.tool.ToolExecutionPhase;
 import com.dingbang.myworld.agent.tool.ToolRegistry;
-import com.dingbang.myworld.agent.tool.annotation.ToolInfo;
-import com.dingbang.myworld.agent.tool.annotation.ToolParam;
 import com.dingbang.myworld.aiframework.api.ModelFinishReason;
 import com.dingbang.myworld.aiframework.api.ModelTurn;
 import com.dingbang.myworld.aiframework.api.event.ModelEventListener;
@@ -51,9 +46,9 @@ class AgentToolLoopTest {
      */
     @Test
     void pairsMultipleToolsAndPreservesHistory() throws Exception {
-        /** 脚本模型的当前请求编号。 */
+        // 脚本模型的当前请求编号。
         AtomicInteger step = new AtomicInteger();
-        /** 两次请求工具调用，第三次是新用户回合。 */
+        // 两次请求工具调用，第三次是新用户回合。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             if (step.incrementAndGet() == 1) {
                 toolTurn(listener, "call-1", "{\"a\":2,\"b\":3}",
@@ -62,23 +57,23 @@ class AgentToolLoopTest {
                 textTurn(listener, "answer-" + step.get(), step.get() == 2 ? "5 和 9" : "继续");
             }
         });
-        /** 记录真实工具调用次数的测试工具。 */
-        AddTool tool = new AddTool();
-        /** 同一 add 同时由直接授权和技能引用。 */
+        // 记录真实工具调用次数的测试工具。
+        AgentToolLoopTestAddTool tool = new AgentToolLoopTestAddTool();
+        // 同一 add 同时由直接授权和技能引用。
         AgentDefinition definition = definition(Arrays.asList("add"), Arrays.asList("math"), 4);
-        /** 使用共享工具注册表的 Agent 服务。 */
+        // 使用共享工具注册表的 Agent 服务。
         DefaultAgentService service = service(gateway, definition, tool,
                 Collections.singletonList(new AgentSkill("math", "遇到算术任务时调用 add", Arrays.asList("add", "add"))));
-        /** 当前运行。 */
+        // 当前运行。
         AgentRun run = service.prepare(new AgentRequest("app", "math", null, "r1", "计算两组加法"));
-        /** 记录运行事件的观察者。 */
+        // 记录运行事件的观察者。
         RecordingAgentEventListener observer = new RecordingAgentEventListener();
         run.subscribe(observer);
         run.execute();
-        /** 第一次运行的完整结果。 */
+        // 第一次运行的完整结果。
         AgentResult result = run.getResult().toCompletableFuture().get(3, TimeUnit.SECONDS);
         assertThat(observer.awaitCompletion(3, TimeUnit.SECONDS)).isTrue();
-        /** 第二个模型请求的消息历史。 */
+        // 第二个模型请求的消息历史。
         List<Message> messages = gateway.getRequests().get(1).getMessages();
 
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
@@ -111,7 +106,7 @@ class AgentToolLoopTest {
         assertThat(observer.getEvents().get(0).getToolExecution().getCallId()).isEqualTo("call-1");
         assertThat(observer.getEvents().get(3).getToolExecution().getCallId()).isEqualTo("call-2");
 
-        /** 同一会话的后续请求。 */
+        // 同一会话的后续请求。
         AgentResult followUp = service.run(new AgentRequest("app", "math", run.getSessionId(), "r2", "再说一次"));
         assertThat(followUp.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
         assertThat(gateway.getRequests().get(2).getMessages()).extracting(Message::getRole)
@@ -128,9 +123,9 @@ class AgentToolLoopTest {
      */
     @Test
     void returnsValidationErrorForModelCorrection() throws Exception {
-        /** 脚本模型请求编号。 */
+        // 脚本模型请求编号。
         AtomicInteger step = new AtomicInteger();
-        /** 先提交缺字段参数，再根据错误返回有效调用。 */
+        // 先提交缺字段参数，再根据错误返回有效调用。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             if (step.incrementAndGet() == 1) {
                 toolTurn(listener, "bad", "{\"a\":2}");
@@ -140,9 +135,9 @@ class AgentToolLoopTest {
                 textTurn(listener, "answer", "5");
             }
         });
-        /** 计数工具。 */
-        AddTool tool = new AddTool();
-        /** 运行结果。 */
+        // 计数工具。
+        AgentToolLoopTestAddTool tool = new AgentToolLoopTestAddTool();
+        // 运行结果。
         AgentResult result = service(gateway, definition(Collections.singletonList("add"),
                 Collections.emptyList(), 4), tool, Collections.emptyList())
                 .run(new AgentRequest("app", "math", null, "r1", "计算 2+3"));
@@ -165,20 +160,20 @@ class AgentToolLoopTest {
      */
     @Test
     void stopsBeforeToolsAtModelTurnLimit() throws Exception {
-        /** 模型每轮继续请求同一工具。 */
+        // 模型每轮继续请求同一工具。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) ->
                 toolTurn(listener, "call-" + (request.getMessages().size()), "{\"a\":2,\"b\":3}"));
-        /** 计数工具。 */
-        AddTool tool = new AddTool();
-        /** 只允许两个模型回合的运行。 */
+        // 计数工具。
+        AgentToolLoopTestAddTool tool = new AgentToolLoopTestAddTool();
+        // 只允许两个模型回合的运行。
         AgentRun run = service(gateway, definition(Collections.singletonList("add"),
                 Collections.emptyList(), 2), tool, Collections.emptyList())
                 .prepare(new AgentRequest("app", "math", null, "r1", "继续调用"));
-        /** 记录终态事件的观察者。 */
+        // 记录终态事件的观察者。
         RecordingAgentEventListener observer = new RecordingAgentEventListener();
         run.subscribe(observer);
         run.execute();
-        /** 达到限制的结果。 */
+        // 达到限制的结果。
         AgentResult result = run.getResult().toCompletableFuture().get(3, TimeUnit.SECONDS);
         assertThat(observer.awaitCompletion(3, TimeUnit.SECONDS)).isTrue();
 
@@ -198,13 +193,13 @@ class AgentToolLoopTest {
      */
     @Test
     void rejectsDuplicateCallIdsBeforeExecution() throws Exception {
-        /** 返回两个相同调用标识的脚本模型。 */
+        // 返回两个相同调用标识的脚本模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) ->
                 toolTurn(listener, "same", "{\"a\":2,\"b\":3}",
                         "same", "{\"a\":4,\"b\":5}"));
-        /** 计数工具。 */
-        AddTool tool = new AddTool();
-        /** 模型结果。 */
+        // 计数工具。
+        AgentToolLoopTestAddTool tool = new AgentToolLoopTestAddTool();
+        // 模型结果。
         AgentResult result = service(gateway, definition(Collections.singletonList("add"),
                 Collections.emptyList(), 3), tool, Collections.emptyList())
                 .run(new AgentRequest("app", "math", null, "r1", "计算"));
@@ -225,9 +220,9 @@ class AgentToolLoopTest {
      * @return Agent 服务
      */
     private static DefaultAgentService service(ScriptedAgentModelGateway gateway,
-                                               AgentDefinition definition, AddTool tool,
+                                               AgentDefinition definition, AgentToolLoopTestAddTool tool,
                                                List<AgentSkill> skills) {
-        /** 公共默认系统提示词。 */
+        // 公共默认系统提示词。
         PromptTemplateRegistry prompts = new PromptTemplateRegistry(new DefaultResourceLoader(),
                 Collections.emptyMap(), Collections.emptyMap());
         return new DefaultAgentService(gateway, prompts, Collections.singletonList(definition),
@@ -257,13 +252,13 @@ class AgentToolLoopTest {
      */
     private static void toolTurn(ModelEventListener listener, String firstId, String firstArgs,
                                  String... extra) {
-        /** 本轮工具调用。 */
+        // 本轮工具调用。
         List<ToolCall> calls = new java.util.ArrayList<>();
         calls.add(new ToolCall(firstId, "add", firstArgs));
         if (extra.length == 2) {
             calls.add(new ToolCall(extra[0], "add", extra[1]));
         }
-        /** 完整助手工具消息。 */
+        // 完整助手工具消息。
         Message assistant = new Message("assistant-" + firstId, Role.ASSISTANT, Collections.emptyList(),
                 calls, Collections.emptyList(), Collections.emptyMap());
         listener.onEvent(new TurnCompleted(new ModelTurn(assistant, ModelFinishReason.TOOL_CALLS)));
@@ -278,7 +273,7 @@ class AgentToolLoopTest {
      * @param answer 完整答案
      */
     private static void textTurn(ModelEventListener listener, String messageId, String answer) {
-        /** 最终助手消息。 */
+        // 最终助手消息。
         Message assistant = new Message(messageId, Role.ASSISTANT,
                 Collections.singletonList(new TextContentBlock(answer)), Collections.emptyList(),
                 Collections.emptyList(), Collections.emptyMap());
@@ -296,53 +291,5 @@ class AgentToolLoopTest {
         return ((TextContentBlock) message.getContentBlocks().get(0)).getText();
     }
 
-    /**
-     * 测试用加法参数。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    public static class AddArgs {
-        /** 第一个加数。 */
-        @ToolParam(description = "第一个加数")
-        public int a;
-        /** 第二个加数。 */
-        @ToolParam(description = "第二个加数")
-        public int b;
-    }
 
-    /**
-     * 记录真实执行次数的测试工具。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    @ToolInfo(name = "add", description = "计算两个整数之和")
-    public static class AddTool implements Tool<AddArgs> {
-        /** 工具真实执行次数。 */
-        private final AtomicInteger invocations = new AtomicInteger();
-
-        /**
-         * 返回参数类型。
-         *
-         * @return 加法参数类型
-         */
-        @Override
-        public Class<AddArgs> parameterType() {
-            return AddArgs.class;
-        }
-
-        /**
-         * 计算和并计数。
-         *
-         * @param parameters 已校验的加法参数
-         * @param context 本次可信运行上下文
-         * @return 整数和
-         */
-        @Override
-        public ToolExecutionResult execute(AddArgs parameters, ToolExecutionContext context) {
-            invocations.incrementAndGet();
-            return ToolExecutionResult.text(Integer.toString(parameters.a + parameters.b));
-        }
-    }
 }

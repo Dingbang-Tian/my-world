@@ -1,7 +1,5 @@
 package com.dingbang.myworld.agent.tool;
 
-import com.dingbang.myworld.agent.tool.annotation.ToolInfo;
-import com.dingbang.myworld.agent.tool.annotation.ToolParam;
 import com.dingbang.myworld.aiframework.model.ToolCall;
 import com.dingbang.myworld.aiframework.model.ToolResult;
 import com.dingbang.myworld.aiframework.model.ToolResultStatus;
@@ -34,7 +32,7 @@ class ToolExecutorTest {
         // 受信任运行上下文。
         ToolExecutionContext context = new ToolExecutionContext("run-1", "session-1", Path.of("/tmp"), null);
         // 测试工具。
-        AddTool tool = new AddTool();
+        ToolExecutorTestAddTool tool = new ToolExecutorTestAddTool();
         // 注册后的授权执行器。
         ToolExecutor executor = new ToolExecutor(new ToolRegistry(Collections.singletonList(tool)));
 
@@ -61,7 +59,7 @@ class ToolExecutorTest {
     @Test
     void rejectsInvalidArgumentsBeforeCallingTool() {
         // 测试工具。
-        AddTool tool = new AddTool();
+        ToolExecutorTestAddTool tool = new ToolExecutorTestAddTool();
         // 授权执行器。
         ToolExecutor executor = new ToolExecutor(new ToolRegistry(Collections.singletonList(tool)));
         // 执行上下文。
@@ -82,14 +80,14 @@ class ToolExecutorTest {
     @Test
     void rejectsUnknownAndConflictingTools() {
         // 单个工具的注册表。
-        ToolRegistry registry = new ToolRegistry(Collections.singletonList(new AddTool()));
+        ToolRegistry registry = new ToolRegistry(Collections.singletonList(new ToolExecutorTestAddTool()));
         // 空授权快照上的执行器。
         ToolExecutor executor = new ToolExecutor(registry.select(Collections.emptyList()));
         // 未获授权的结果。
         ToolResult result = executor.execute(new ToolCall("call", "add", "{\"a\":2,\"b\":3}"),
                 new ToolExecutionContext("run", "session", null, null), null);
         assertThat(result.getErrorCode()).isEqualTo("TOOL_NOT_FOUND");
-        assertThatThrownBy(() -> new ToolRegistry(Arrays.asList(new AddTool(), new AddTool())))
+        assertThatThrownBy(() -> new ToolRegistry(Arrays.asList(new ToolExecutorTestAddTool(), new ToolExecutorTestAddTool())))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("工具名称冲突");
     }
 
@@ -99,7 +97,7 @@ class ToolExecutorTest {
     @Test
     void isolatesListenerFailureAndReportsToolFailure() {
         // 抛错工具的执行器。
-        ToolExecutor executor = new ToolExecutor(new ToolRegistry(Collections.singletonList(new FailingTool())));
+        ToolExecutor executor = new ToolExecutor(new ToolRegistry(Collections.singletonList(new ToolExecutorTestFailingTool())));
         // 执行上下文。
         ToolExecutionContext context = new ToolExecutionContext("run", "session", null, null);
         // 异常不会中断的工具结果。
@@ -115,7 +113,7 @@ class ToolExecutorTest {
     @Test
     void validatesEnumAndListElements() {
         // 枚举列表工具的描述。
-        ToolDescriptor<FilterArgs> descriptor = new FilterTool().descriptor();
+        ToolDescriptor<ToolExecutorTestFilterArgs> descriptor = new ToolExecutorTestFilterTool().descriptor();
         // 列表字段 Schema。
         JsonNode schema = descriptor.getParameterSchema();
         assertThat(schema.get("properties").get("labels").get("items").get("type").asText())
@@ -135,7 +133,7 @@ class ToolExecutorTest {
      */
     @Test
     void rejectsUnsupportedNestedParameter() {
-        assertThatThrownBy(() -> ToolDescriptor.of("nested", "嵌套参数", NestedArgs.class))
+        assertThatThrownBy(() -> ToolDescriptor.of("nested", "嵌套参数", ToolExecutorTestNestedArgs.class))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("不支持");
     }
 
@@ -145,7 +143,7 @@ class ToolExecutorTest {
     @Test
     void supportsExplicitDescriptorAndScalarTypes() {
         // 无工具类注解的显式描述工具。
-        ExplicitTool tool = new ExplicitTool();
+        ToolExecutorTestExplicitTool tool = new ToolExecutorTestExplicitTool();
         // 工具描述的参数 Schema。
         JsonNode schema = tool.descriptor().getParameterSchema();
         assertThat(schema.get("properties").get("title").get("type").asText()).isEqualTo("string");
@@ -167,244 +165,13 @@ class ToolExecutorTest {
                 context, null).getErrorCode()).isEqualTo("TOOL_VALIDATION_ERROR");
     }
 
-    /**
-     * 两个整数参数。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    public static class AddArgs {
-        /**
-         * 第一个加数。
-         */
-        @ToolParam(description = "第一个加数")
-        private int a;
-        /**
-         * 第二个加数。
-         */
-        @ToolParam(description = "第二个加数")
-        private int b;
-    }
 
-    /**
-     * 测试用加法工具。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    @ToolInfo(name = "add", description = "计算两个整数之和")
-    public static class AddTool implements Tool<AddArgs> {
-        /**
-         * 已实际调用次数。
-         */
-        private int invocations;
 
-        /**
-         * 返回参数类型。
-         *
-         * @return 加法参数类
-         */
-        @Override
-        public Class<AddArgs> parameterType() {
-            return AddArgs.class;
-        }
 
-        /**
-         * 计算整数之和并显示可信运行标识。
-         *
-         * @param parameters 两个加数
-         * @param context 可信运行上下文
-         * @return 计算结果
-         */
-        @Override
-        public ToolExecutionResult execute(AddArgs parameters, ToolExecutionContext context) {
-            invocations++;
-            return ToolExecutionResult.text((parameters.a + parameters.b) + "@" + context.getRunId());
-        }
-    }
 
-    /**
-     * 不含参数的失败测试工具。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    @ToolInfo(name = "fail", description = "主动失败")
-    public static class FailingTool implements Tool<EmptyArgs> {
-        /**
-         * 返回空参数类型。
-         *
-         * @return 空参数类
-         */
-        @Override
-        public Class<EmptyArgs> parameterType() {
-            return EmptyArgs.class;
-        }
 
-        /**
-         * 模拟工具执行失败。
-         *
-         * @param parameters 空参数
-         * @param context 可信上下文
-         * @return 不会返回
-         */
-        @Override
-        public ToolExecutionResult execute(EmptyArgs parameters, ToolExecutionContext context) {
-            throw new IllegalStateException("boom");
-        }
-    }
 
-    /**
-     * 无字段参数。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    public static class EmptyArgs { }
 
-    /**
-     * 测试列表与枚举的参数。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    public static class FilterArgs {
-        /**
-         * 待处理标签。
-         */
-        @ToolParam(description = "标签")
-        public List<String> labels;
-        /**
-         * 执行模式。
-         */
-        @ToolParam(description = "模式")
-        public Mode mode;
-    }
 
-    /**
-     * 列表处理模式。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    public enum Mode {
-        /**
-         * 快速模式。
-         */
-        FAST,
-        /**
-         * 慢速模式。
-         */
-        SLOW
-    }
 
-    /**
-     * 列表和枚举测试工具。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    @ToolInfo(name = "filter", description = "按模式筛选标签")
-    public static class FilterTool implements Tool<FilterArgs> {
-        /**
-         * 返回筛选参数类。
-         *
-         * @return 参数类
-         */
-        @Override
-        public Class<FilterArgs> parameterType() { return FilterArgs.class; }
-
-        /**
-         * 返回测试输出。
-         *
-         * @param parameters 筛选参数
-         * @param context 可信上下文
-         * @return 文本输出
-         */
-        @Override
-        public ToolExecutionResult execute(FilterArgs parameters, ToolExecutionContext context) {
-            return ToolExecutionResult.text(parameters.mode.name());
-        }
-    }
-
-    /**
-     * 不支持的嵌套参数。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    public static class NestedArgs {
-        /**
-         * 嵌套对象。
-         */
-        @ToolParam(description = "嵌套对象")
-        public AddArgs nested;
-    }
-
-    /**
-     * 显式描述工具的多类型参数。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    public static class ExplicitArgs {
-        /**
-         * 标题。
-         */
-        @ToolParam(description = "标题")
-        public String title;
-        /**
-         * 权重。
-         */
-        @ToolParam(description = "权重")
-        public double weight;
-        /**
-         * 是否启用。
-         */
-        @ToolParam(description = "是否启用")
-        public boolean enabled;
-        /**
-         * 整数位置列表。
-         */
-        @ToolParam(description = "位置")
-        public List<Integer> offsets;
-    }
-
-    /**
-     * 不依赖工具类注解的显式描述工具。
-     *
-     * @author Sebastian
-     * @since 2026/10/02
-     */
-    public static class ExplicitTool implements Tool<ExplicitArgs> {
-        /**
-         * 返回参数类型。
-         *
-         * @return 参数类
-         */
-        @Override
-        public Class<ExplicitArgs> parameterType() { return ExplicitArgs.class; }
-
-        /**
-         * 显式提供工具名称与说明。
-         *
-         * @return 工具描述
-         */
-        @Override
-        public ToolDescriptor<ExplicitArgs> descriptor() {
-            return ToolDescriptor.of("explicit", "验证多类型参数", ExplicitArgs.class);
-        }
-
-        /**
-         * 返回接收到的标题和位置数量。
-         *
-         * @param parameters 多类型参数
-         * @param context 可信上下文
-         * @return 测试输出
-         */
-        @Override
-        public ToolExecutionResult execute(ExplicitArgs parameters, ToolExecutionContext context) {
-            return ToolExecutionResult.text(parameters.title + ":" + parameters.offsets.size());
-        }
-    }
 }

@@ -42,14 +42,13 @@ public final class ToolExecutor {
         Objects.requireNonNull(context, "执行上下文不能为 null");
         context.checkActive();
         emit(call, ToolExecutionPhase.PREPARING, null, listener);
-        /** 注册表内的可信 Java 工具。 */
+        // 工具对象和描述必须来自同一个可信注册表快照。
         Tool<?> tool = registry.findTool(call.getName());
-        /** 与工具配对的参数契约。 */
         ToolDescriptor<?> descriptor = registry.findDescriptor(call.getName());
         if (tool == null || descriptor == null) {
             return failed(call, "TOOL_NOT_FOUND", "工具未获授权或未注册: " + call.getName(), listener);
         }
-        /** 经 JSON Schema 规则校验的参数对象。 */
+        // 在进入业务工具前完成 JSON 解析和参数约束校验。
         Object parameters;
         try {
             parameters = descriptor.parse(call.getArgumentsJson());
@@ -59,10 +58,10 @@ public final class ToolExecutor {
         context.checkActive();
         emit(call, ToolExecutionPhase.CALLING, null, listener);
         try {
-            /** Java 工具成功输出。 */
+            // 工具成功后再次检查取消信号，避免把取消后的迟到输出报告为成功。
             ToolExecutionResult output = invoke(tool, parameters, context);
             context.checkActive();
-            /** 与模型调用标识配对的成功结果。 */
+            // ToolResult 始终保留原 callId，下一轮模型据此完成消息配对。
             ToolResult result = new ToolResult(call.getCallId(), ToolResultStatus.SUCCESS,
                     output.getContent(), null, output.isTruncated());
             emit(call, ToolExecutionPhase.COMPLETED, result, listener);
@@ -85,7 +84,7 @@ public final class ToolExecutor {
      * @param <P> 工具参数类型
      */
     private static <P> ToolExecutionResult invoke(Tool<P> tool, Object parameters, ToolExecutionContext context) {
-        /** 与工具类型声明匹配的参数。 */
+        // 注册阶段已经检查参数类型，这里只做安全强制转换。
         P typed = tool.parameterType().cast(parameters);
         context.checkActive();
         return Objects.requireNonNull(tool.execute(typed, context), "工具不能返回 null 结果");
@@ -101,7 +100,7 @@ public final class ToolExecutor {
      * @return 失败结果
      */
     private static ToolResult failed(ToolCall call, String code, String message, ToolExecutionListener listener) {
-        /** 与模型调用标识配对的失败结果。 */
+        // 普通工具错误作为结构化 TOOL 消息返回，允许模型修正参数。
         ToolResult result = new ToolResult(call.getCallId(), ToolResultStatus.ERROR, message, code, false);
         emit(call, ToolExecutionPhase.FAILED, result, listener);
         return result;

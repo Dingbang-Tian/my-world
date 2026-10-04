@@ -2,7 +2,6 @@ package com.dingbang.myworld.agent.runtime;
 
 import com.dingbang.myworld.agent.api.AgentEvent;
 import com.dingbang.myworld.agent.api.AgentEventException;
-import com.dingbang.myworld.agent.api.AgentEventListener;
 import com.dingbang.myworld.agent.api.AgentEventType;
 import org.junit.jupiter.api.Test;
 import java.time.Instant;
@@ -28,18 +27,18 @@ class AgentEventPublisherTest {
      */
     @Test
     void reportsHistoryGapAndAllowsCursorResume() throws Exception {
-        /** 容量为两条的发布器。 */
+        // 容量为两条的发布器。
         AgentEventPublisher publisher = new AgentEventPublisher(2);
         publisher.publish(event(1));
         publisher.publish(event(2));
         publisher.publish(event(3));
-        assertThatThrownBy(() -> publisher.subscribe(new SilentListener(), 0))
+        assertThatThrownBy(() -> publisher.subscribe(new AgentEventPublisherTestSilentListener(), 0))
                 .isInstanceOf(AgentEventException.class)
                 .satisfies(error -> {
                     assertThat(((AgentEventException) error).getCode()).isEqualTo("EVENT_HISTORY_GAP");
                     assertThat(((AgentEventException) error).getFirstAvailableSequence()).isEqualTo(2);
                 });
-        /** 从第一条之后恢复的观察者。 */
+        // 从第一条之后恢复的观察者。
         RecordingAgentEventListener resumed = new RecordingAgentEventListener();
         publisher.subscribe(resumed, 1);
         publisher.complete();
@@ -54,52 +53,20 @@ class AgentEventPublisherTest {
      */
     @Test
     void slowSubscriberGetsExplicitErrorWithoutBlockingPublisher() throws Exception {
-        /** 独立的消费者执行线程。 */
+        // 独立的消费者执行线程。
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            /** 有界待消费队列。 */
+            // 有界待消费队列。
             AgentEventPublisher publisher = new AgentEventPublisher(2, executor);
-            /** 首个事件已经进入用户回调的门闩。 */
+            // 首个事件已经进入用户回调的门闩。
             CountDownLatch entered = new CountDownLatch(1);
-            /** 释放阻塞消费者的门闩。 */
+            // 释放阻塞消费者的门闩。
             CountDownLatch release = new CountDownLatch(1);
-            /** 消费者收到明确错误的门闩。 */
+            // 消费者收到明确错误的门闩。
             CountDownLatch failed = new CountDownLatch(1);
-            /** 当前订阅的错误。 */
+            // 当前订阅的错误。
             AtomicReference<AgentEventException> error = new AtomicReference<>();
-            publisher.subscribe(new AgentEventListener() {
-                /**
-                 * 故意阻塞首个事件以耗尽队列。
-                 *
-                 * @param event 当前事件
-                 */
-                @Override
-                public void onEvent(AgentEvent event) {
-                    entered.countDown();
-                    try {
-                        release.await(2, TimeUnit.SECONDS);
-                    } catch (InterruptedException exception) {
-                        Thread.currentThread().interrupt();
-                    }
-                }
-
-                /**
-                 * 测试订阅结束通知。
-                 */
-                @Override
-                public void onComplete() { }
-
-                /**
-                 * 记录慢消费者错误。
-                 *
-                 * @param failure 当前订阅错误
-                 */
-                @Override
-                public void onError(AgentEventException failure) {
-                    error.set(failure);
-                    failed.countDown();
-                }
-            }, 0);
+            publisher.subscribe(new SlowAgentEventListener(entered, release, failed, error), 0);
             publisher.publish(event(1));
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue();
             publisher.publish(event(2));
@@ -123,25 +90,4 @@ class AgentEventPublisherTest {
         return new AgentEvent("run", "session", sequence, Instant.now(), AgentEventType.TEXT_DELTA, "x", null);
     }
 
-    /**
-     * 不参与断言的订阅占位。
-     *
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    private static final class SilentListener implements AgentEventListener {
-        /**
-         * 忽略事件。
-         *
-         * @param event 当前事件
-         */
-        @Override
-        public void onEvent(AgentEvent event) { }
-
-        /**
-         * 忽略结束通知。
-         */
-        @Override
-        public void onComplete() { }
-    }
 }

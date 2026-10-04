@@ -72,8 +72,14 @@ public class RequestUtils {
      */
     public static final String TENANT_ALL = "ALL";
 
+    /**
+     * 当前线程的请求属性。
+     */
     private static final ThreadLocal<Map<String, String>> ATTRIBUTES = ThreadLocal.withInitial(HashMap::new);
 
+    /**
+     * 当前线程的操作用户。
+     */
     private static final ThreadLocal<OperUser> CUSTOM_USER = new ThreadLocal<>();
 
     /**

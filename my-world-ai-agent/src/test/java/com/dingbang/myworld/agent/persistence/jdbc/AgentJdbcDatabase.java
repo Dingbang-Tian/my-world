@@ -14,11 +14,17 @@ import java.util.Objects;
  * @since 2026/10/03
  */
 public final class AgentJdbcDatabase {
-    /** JDBC 连接地址。 */
+    /**
+     * JDBC 连接地址。
+     */
     private final String url;
-    /** 数据库用户名。 */
+    /**
+     * 数据库用户名。
+     */
     private final String username;
-    /** 数据库密码。 */
+    /**
+     * 数据库密码。
+     */
     private final String password;
 
     /**

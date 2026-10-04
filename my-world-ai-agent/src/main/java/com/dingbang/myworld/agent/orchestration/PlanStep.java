@@ -11,9 +11,13 @@ import lombok.Data;
  */
 @Data
 public final class PlanStep {
-    /** 从一开始的步骤序号。 */
+    /**
+     * 从一开始的步骤序号。
+     */
     private final int number;
-    /** 步骤任务说明。 */
+    /**
+     * 步骤任务说明。
+     */
     private final String description;
 
     /**

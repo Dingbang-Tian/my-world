@@ -1,4 +1,4 @@
-package com.dingbang.myworld.ai.crypto;
+package com.dingbang.myworld.common.crypto;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.core.env.MapPropertySource;

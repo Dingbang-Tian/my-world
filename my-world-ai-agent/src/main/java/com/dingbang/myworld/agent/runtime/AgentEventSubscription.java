@@ -3,6 +3,8 @@ package com.dingbang.myworld.agent.runtime;
 import com.dingbang.myworld.agent.api.AgentEvent;
 import com.dingbang.myworld.agent.api.AgentEventException;
 import com.dingbang.myworld.agent.api.AgentEventListener;
+import lombok.AccessLevel;
+import lombok.RequiredArgsConstructor;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.concurrent.Executor;
@@ -13,36 +15,40 @@ import java.util.concurrent.Executor;
  * @author Sebastian
  * @since 2026/10/03
  */
+@RequiredArgsConstructor(access = AccessLevel.PACKAGE)
 final class AgentEventSubscription {
-    /** 订阅监听器。 */
-    private final AgentEventListener listener;
-    /** 最大待处理事件数。 */
-    private final int capacity;
-    /** 消费者执行器。 */
-    private final Executor executor;
-    /** 等待派发的事件。 */
-    private final Deque<AgentEvent> pending = new ArrayDeque<>();
-    /** 是否已有派发任务。 */
-    private boolean draining;
-    /** 是否已提交结束通知。 */
-    private boolean completed;
-    /** 是否不再接受任何事件。 */
-    private boolean closed;
-    /** 终止当前订阅的错误。 */
-    private AgentEventException failure;
-
     /**
-     * 创建单消费者队列。
-     *
-     * @param listener 观察者
-     * @param capacity 队列容量
-     * @param executor 独立事件执行器
+     * 订阅监听器。
      */
-    AgentEventSubscription(AgentEventListener listener, int capacity, Executor executor) {
-        this.listener = listener;
-        this.capacity = capacity;
-        this.executor = executor;
-    }
+    private final AgentEventListener listener;
+    /**
+     * 最大待处理事件数。
+     */
+    private final int capacity;
+    /**
+     * 消费者执行器。
+     */
+    private final Executor executor;
+    /**
+     * 等待派发的事件。
+     */
+    private final Deque<AgentEvent> pending = new ArrayDeque<>();
+    /**
+     * 是否已有派发任务。
+     */
+    private boolean draining;
+    /**
+     * 是否已提交结束通知。
+     */
+    private boolean completed;
+    /**
+     * 是否不再接受任何事件。
+     */
+    private boolean closed;
+    /**
+     * 终止当前订阅的错误。
+     */
+    private AgentEventException failure;
 
     /**
      * 非阻塞加入一条事件，容量耗尽只结束此订阅。
@@ -103,9 +109,9 @@ final class AgentEventSubscription {
      */
     private void drain() {
         while (true) {
-            /** 本次待发送事件。 */
+            // 本次待发送事件。
             AgentEvent event;
-            /** 本次待报告错误。 */
+            // 本次待报告错误。
             AgentEventException error;
             synchronized (this) {
                 error = failure;

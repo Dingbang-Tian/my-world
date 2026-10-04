@@ -18,12 +18,27 @@ import java.util.TimeZone;
  */
 public class GlobalTimeZoneUtils {
 
+    /**
+     * UTC 时区标识。
+     */
     private final static String UTC = "UTC";
+    /**
+     * UT 时区标识。
+     */
     private final static String UT = "UT";
+    /**
+     * GMT 时区标识。
+     */
     private final static String GMT = "GMT";
 
+    /**
+     * 正时区偏移符号。
+     */
     private final static String PLUS = "+";
 
+    /**
+     * 负时区偏移符号。
+     */
     private final static String MINUS = "-";
 
     /**

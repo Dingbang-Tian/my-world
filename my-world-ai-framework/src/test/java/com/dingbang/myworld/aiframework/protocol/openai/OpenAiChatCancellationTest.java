@@ -5,14 +5,12 @@ import com.dingbang.myworld.aiframework.api.ExecutionControlException;
 import com.dingbang.myworld.aiframework.api.ModelExecutionContext;
 import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.api.ModelRequest;
-import com.dingbang.myworld.aiframework.api.event.ModelEvent;
 import com.dingbang.myworld.aiframework.api.event.ModelEventListener;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
-import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -40,18 +38,18 @@ class OpenAiChatCancellationTest {
      */
     @Test
     void cancellationClosesOpenSseStream() throws Exception {
-        /** 本地动态端口 HTTP 服务。 */
+        // 本地动态端口 HTTP 服务。
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        /** 服务端首段内容已经发出的同步门闩。 */
+        // 服务端首段内容已经发出的同步门闩。
         CountDownLatch sent = new CountDownLatch(1);
-        /** 测试结束时允许服务端关闭连接。 */
+        // 测试结束时允许服务端关闭连接。
         CountDownLatch release = new CountDownLatch(1);
         server.createContext("/chat", exchange -> {
             exchange.getRequestBody().readAllBytes();
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
             exchange.sendResponseHeaders(200, 0);
             try {
-                /** 首段增量事件。 */
+                // 首段增量事件。
                 byte[] first = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"a\"}}]}\n\n"
                         .getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseBody().write(first);
@@ -65,16 +63,16 @@ class OpenAiChatCancellationTest {
             }
         });
         server.start();
-        /** 单次网关调用线程。 */
+        // 单次网关调用线程。
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try {
-            /** 与网关共享的取消令牌。 */
+            // 与网关共享的取消令牌。
             CancellationToken token = new CancellationToken();
-            /** 记录唯一错误回调。 */
+            // 记录唯一错误回调。
             AtomicReference<Throwable> error = new AtomicReference<>();
-            /** 本地模型网关。 */
+            // 本地模型网关。
             OpenAiChatGateway gateway = gateway(server);
-            /** 正在读取 SSE 的单次请求。 */
+            // 正在读取 SSE 的单次请求。
             Future<?> active = executor.submit(() -> gateway.generate(request(token, 100), listener(error)));
             assertThat(sent.await(2, TimeUnit.SECONDS)).isTrue();
             token.cancel();
@@ -95,11 +93,11 @@ class OpenAiChatCancellationTest {
      */
     @Test
     void oversizedStreamingContentFailsBeforeAccumulation() throws Exception {
-        /** 本地动态端口 HTTP 服务。 */
+        // 本地动态端口 HTTP 服务。
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/chat", exchange -> {
             exchange.getRequestBody().readAllBytes();
-            /** 三字符模型增量和完成标记。 */
+            // 三字符模型增量和完成标记。
             byte[] body = ("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"abc\"},"
                     + "\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n").getBytes(StandardCharsets.UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "text/event-stream");
@@ -109,7 +107,7 @@ class OpenAiChatCancellationTest {
         });
         server.start();
         try {
-            /** 模型调用的错误回调。 */
+            // 模型调用的错误回调。
             AtomicReference<Throwable> error = new AtomicReference<>();
             gateway(server).generate(request(new CancellationToken(), 2), listener(error));
             assertThat(error.get()).isInstanceOf(ExecutionControlException.class);
@@ -139,7 +137,7 @@ class OpenAiChatCancellationTest {
      * @return 模型请求
      */
     private static ModelRequest request(CancellationToken token, int output) {
-        /** 用户消息。 */
+        // 用户消息。
         Message user = new Message("user", Role.USER,
                 Collections.singletonList(new TextContentBlock("hi")), Collections.emptyList(),
                 Collections.emptyList(), Collections.emptyMap());
@@ -154,30 +152,6 @@ class OpenAiChatCancellationTest {
      * @return 模型监听器
      */
     private static ModelEventListener listener(AtomicReference<Throwable> error) {
-        return new ModelEventListener() {
-            /**
-             * 忽略增量。
-             *
-             * @param event 当前模型事件
-             */
-            @Override
-            public void onEvent(ModelEvent event) { }
-
-            /**
-             * 记录唯一错误。
-             *
-             * @param failure 网关错误
-             */
-            @Override
-            public void onError(Throwable failure) {
-                error.compareAndSet(null, failure);
-            }
-
-            /**
-             * 忽略正常结束。
-             */
-            @Override
-            public void onComplete() { }
-        };
+        return new ErrorRecordingModelListener(error);
     }
 }

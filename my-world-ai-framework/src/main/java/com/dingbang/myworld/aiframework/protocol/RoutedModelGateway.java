@@ -16,7 +16,9 @@ import java.util.Objects;
  * @since 2026/10/03
  */
 public final class RoutedModelGateway implements ModelGateway {
-    /** 不可变的模型到适配器映射。 */
+    /**
+     * 不可变的模型到适配器映射。
+     */
     private final Map<String, ModelGateway> routes;
 
     /**
@@ -39,10 +41,11 @@ public final class RoutedModelGateway implements ModelGateway {
      * @param request 模型请求
      * @param listener 事件监听器
      */
-    @Override public void generate(ModelRequest request, ModelEventListener listener) {
+    @Override
+    public void generate(ModelRequest request, ModelEventListener listener) {
         Objects.requireNonNull(request, "请求不能为空");
         Objects.requireNonNull(listener, "监听器不能为空");
-        /** 选中的协议适配器。 */
+        // 选中的协议适配器。
         ModelGateway gateway = routes.get(request.getModelId());
         if (gateway == null) {
             listener.onError(new ModelGatewayException("CONFIGURATION_ERROR", "未知聊天模型: " + request.getModelId()));

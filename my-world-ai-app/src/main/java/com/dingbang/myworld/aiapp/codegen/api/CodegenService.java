@@ -4,6 +4,8 @@ import com.dingbang.myworld.agent.api.AgentRequest;
 import com.dingbang.myworld.agent.api.AgentResult;
 import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.api.AgentService;
+import com.dingbang.myworld.agent.session.AgentSessionService;
+import com.dingbang.myworld.agent.session.SessionSnapshot;
 import com.dingbang.myworld.agent.persistence.RunJournal;
 import com.dingbang.myworld.agent.persistence.RecoveryJournal;
 import com.dingbang.myworld.agent.api.AgentRecoveryService;
@@ -21,17 +23,29 @@ import java.util.Objects;
  * @since 2026/10/03
  */
 public final class CodegenService {
-    /** 代码生成应用标识。 */
+    /**
+     * 代码生成应用标识。
+     */
     public static final String APP_ID = "codegen";
-    /** 代码生成 Agent 标识。 */
+    /**
+     * 代码生成 Agent 标识。
+     */
     public static final String AGENT_ID = "codegen";
-    /** 应用专用 Agent 服务。 */
+    /**
+     * 应用专用 Agent 服务。
+     */
     private final AgentService agent;
-    /** 本应用的文件工具及产物记录。 */
+    /**
+     * 本应用的文件工具及产物记录。
+     */
     private final FileTools files;
-    /** 可选的命令工具及执行报告。 */
+    /**
+     * 可选的命令工具及执行报告。
+     */
     private final ExecuteCommandTool commands;
-    /** 可选的运行与产物持久化记录器。 */
+    /**
+     * 可选的运行与产物持久化记录器。
+     */
     private final RunJournal journal;
 
     /**
@@ -71,6 +85,30 @@ public final class CodegenService {
     }
 
     /**
+     * 提供同一可信代码生成定义的公共 Agent SDK 入口。
+     *
+     * @return 可直接准备和执行代码生成任务的 Agent 服务
+     */
+    public AgentService agentService() {
+        return agent;
+    }
+
+    /**
+     * 读取代码生成 Agent 当前会话的内存快照。
+     *
+     * @param ownerId 可信调用方的所有者标识
+     * @param sessionId 会话标识
+     * @return 会话版本、消息和摘要快照
+     * @throws IllegalStateException 当前 Agent 未提供会话服务时抛出
+     */
+    public SessionSnapshot session(String ownerId, String sessionId) {
+        if (!(agent instanceof AgentSessionService service)) {
+            throw new IllegalStateException("当前 Agent 服务不支持会话查询");
+        }
+        return service.getSession(ownerId, APP_ID, AGENT_ID, sessionId);
+    }
+
+    /**
      * 查询本进程中一次运行成功的文件产物。
      *
      * @param runId Agent 运行标识
@@ -90,8 +128,8 @@ public final class CodegenService {
     public List<FileArtifact> artifacts(String ownerId, String runId) {
         if (!(journal instanceof RecoveryJournal recoveryJournal)) return files.artifacts(runId);
         return recoveryJournal.artifacts(runId, ownerId, APP_ID).stream()
-                .map(record -> new FileArtifact(record.runId(), record.operation(), record.path(),
-                        record.afterHash() == null ? record.beforeHash() : record.afterHash()))
+                .map(record -> new FileArtifact(record.getRunId(), record.getOperation(), record.getPath(),
+                        record.getAfterHash() == null ? record.getBeforeHash() : record.getAfterHash()))
                 .toList();
     }
 

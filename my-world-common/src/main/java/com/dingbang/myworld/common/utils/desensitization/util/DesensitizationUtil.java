@@ -10,6 +10,9 @@ import org.apache.commons.lang3.StringUtils;
  */
 public class DesensitizationUtil {
 
+    /**
+     * 带正号数值使用的前缀。
+     */
     public static final String PREFIX_PLUS = "+";
 
     /**

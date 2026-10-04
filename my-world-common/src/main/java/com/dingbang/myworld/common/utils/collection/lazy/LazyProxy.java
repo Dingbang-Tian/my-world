@@ -1,7 +1,5 @@
 package com.dingbang.myworld.common.utils.collection.lazy;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
 import net.sf.cglib.proxy.Callback;
 import net.sf.cglib.proxy.Enhancer;
 import net.sf.cglib.proxy.Factory;
@@ -82,7 +80,7 @@ public class LazyProxy {
             enhancer.setInterfaces(new Class[]{LazyLoadable.class});
         }
 
-        enhancer.setCallback(new ILazyLoader(lazyLoader));
+        enhancer.setCallback(new LazyLoaderAdapter(lazyLoader));
         return (T) enhancer.create();
     }
 
@@ -98,30 +96,10 @@ public class LazyProxy {
         }
         if (proxy instanceof LazyLoadable) {
             Callback callback = ((Factory) proxy).getCallback(0);
-            return ((ILazyLoader) callback).isLoaded();
+            return ((LazyLoaderAdapter) callback).isLoaded();
         }
         return true;
     }
 
-    /**
-     * CGLIB 延迟加载回调实现。
-     *
-     * @author Sebastian
-     * @since 2026/09/25
-     */
-    @Getter
-    @RequiredArgsConstructor
-    public static class ILazyLoader implements LazyLoader {
-
-        private final LazyLoader lazyLoader;
-        private boolean loaded = false;
-
-        @Override
-        public Object loadObject() throws Exception {
-            Object result = lazyLoader.loadObject();
-            loaded = true;
-            return result;
-        }
-    }
 
 }

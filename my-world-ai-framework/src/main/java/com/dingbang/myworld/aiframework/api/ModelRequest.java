@@ -29,13 +29,19 @@ public final class ModelRequest {
      */
     private final List<Message> messages;
 
-    /** 本轮允许模型调用的工具说明。 */
+    /**
+     * 本轮允许模型调用的工具说明。
+     */
     private final List<ModelToolDefinition> tools;
 
-    /** 本次调用的可选覆盖值。 */
+    /**
+     * 本次调用的可选覆盖值。
+     */
     private final ModelOptions options;
 
-    /** 本次调用的截止时间、取消信号和响应预算。 */
+    /**
+     * 本次调用的截止时间、取消信号和响应预算。
+     */
     private final ModelExecutionContext executionContext;
 
     /**

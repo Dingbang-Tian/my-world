@@ -8,7 +8,6 @@ import com.fasterxml.jackson.databind.SerializerProvider;
 import com.fasterxml.jackson.databind.ser.ContextualSerializer;
 import com.fasterxml.jackson.databind.ser.DefaultSerializerProvider;
 import com.fasterxml.jackson.databind.ser.std.StringSerializer;
-import com.fasterxml.jackson.databind.type.TypeFactory;
 import com.dingbang.myworld.common.utils.ClassTypeUtils;
 import com.dingbang.myworld.common.utils.lang.StringUtils;
 import com.dingbang.myworld.common.utils.sensitive.util.SensitiveUtil;
@@ -27,8 +26,14 @@ import java.util.Objects;
 
 public class SensitiveJsonSerializer extends JsonSerializer<Object> implements ContextualSerializer {
 
+    /**
+     * 默认 JSON 序列化器。
+     */
     private static final JsonSerializer<Object> DEFAULT_SERIALIZER = new StringSerializer();
 
+    /**
+     * 默认 JSON 序列化器提供器。
+     */
     private static final DefaultSerializerProvider DEFAULT_SERIALIZER_PROVIDER = new DefaultSerializerProvider.Impl();
 
 

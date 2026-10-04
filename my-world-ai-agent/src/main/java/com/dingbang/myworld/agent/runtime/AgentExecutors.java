@@ -15,11 +15,17 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 2026/10/03
  */
 final class AgentExecutors {
-    /** 模型和工具阻塞工作池，饱和时明确拒绝新任务。 */
+    /**
+     * 模型和工具阻塞工作池，饱和时明确拒绝新任务。
+     */
     static final Executor WORK = pool("agent-work-", 16);
-    /** 事件消费者独立工作池，慢观察者不占用模型线程。 */
+    /**
+     * 事件消费者独立工作池，慢观察者不占用模型线程。
+     */
     static final Executor EVENTS = pool("agent-events-", 32);
-    /** 截止时间调度器，不在其线程执行工具或用户事件。 */
+    /**
+     * 截止时间调度器，不在其线程执行工具或用户事件。
+     */
     static final ScheduledThreadPoolExecutor TIMER = timer();
 
     /**
@@ -30,7 +36,7 @@ final class AgentExecutors {
      * @return 有界执行器
      */
     private static Executor pool(String prefix, int maximum) {
-        /** 有限线程和有限任务队列的执行器。 */
+        // 有限线程和有限任务队列的执行器。
         ThreadPoolExecutor pool = new ThreadPoolExecutor(maximum, maximum, 30, TimeUnit.SECONDS,
                 new ArrayBlockingQueue<>(maximum * 16), factory(prefix),
                 new ThreadPoolExecutor.AbortPolicy());
@@ -44,7 +50,7 @@ final class AgentExecutors {
      * @return 截止时间调度器
      */
     private static ScheduledThreadPoolExecutor timer() {
-        /** 专用于轻量截止时间判定的调度器。 */
+        // 专用于轻量截止时间判定的调度器。
         ScheduledThreadPoolExecutor scheduler = new ScheduledThreadPoolExecutor(2, factory("agent-deadline-"));
         scheduler.setRemoveOnCancelPolicy(true);
         return scheduler;
@@ -57,10 +63,10 @@ final class AgentExecutors {
      * @return 线程工厂
      */
     private static ThreadFactory factory(String prefix) {
-        /** 工厂内单调递增的线程编号。 */
+        // 工厂内单调递增的线程编号。
         AtomicInteger sequence = new AtomicInteger();
         return task -> {
-            /** 当前新建线程。 */
+            // 当前新建线程。
             Thread thread = new Thread(task, prefix + sequence.incrementAndGet());
             thread.setDaemon(true);
             return thread;

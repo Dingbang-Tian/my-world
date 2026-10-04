@@ -4,6 +4,8 @@ import cn.hutool.core.util.StrUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.dingbang.myworld.common.utils.lang.CompareUtils;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import org.springframework.lang.Nullable;
 import jakarta.validation.constraints.NotNull;
@@ -22,14 +24,27 @@ import java.util.function.Supplier;
  * @author Sebastian
  * @since 2026/09/25
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Numbers {
 
 
+    /**
+     * 金额的小数精度。
+     */
     public static final int AMOUNT_SCALE = FitNums.INT_2;
 
+    /**
+     * 价格的小数精度。
+     */
     public static final int PRICE_SCALE = FitNums.INT_4;
 
+    /**
+     * 数值一百。
+     */
     public static final BigDecimal NUM_100 = new BigDecimal("100");
+    /**
+     * 数值一千。
+     */
     public static final BigDecimal NUM_1000 = new BigDecimal("1000");
 
     /**
@@ -310,6 +325,9 @@ public final class Numbers {
         }
     }
 
+    /**
+     * 按目标类型索引的数字转换函数。
+     */
     private static final Map<Class, Function<Number, Number>> CONVERT_FUNC = ((Supplier<Map<Class, Function<Number, Number>>>) () -> {
         Map<Class, Function<Number, Number>> func = Maps.newHashMap();
         func.put(Integer.class, Number::intValue);
@@ -493,6 +511,4 @@ public final class Numbers {
         return subtractNonNegative(obj);
     }
 
-    private Numbers() {
-    }
 }

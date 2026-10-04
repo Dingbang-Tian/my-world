@@ -13,6 +13,10 @@ import org.springframework.context.annotation.Import;
  * @since 2026/10/01
  */
 @Configuration(proxyBeanMethods = false)
-@Import({AgentModuleConfiguration.class, OpenAiChatConfiguration.class, CodegenConfiguration.class})
+@Import({
+        AgentModuleConfiguration.class,
+        OpenAiChatConfiguration.class,
+        CodegenConfiguration.class
+})
 public class AiApplicationConfiguration {
 }

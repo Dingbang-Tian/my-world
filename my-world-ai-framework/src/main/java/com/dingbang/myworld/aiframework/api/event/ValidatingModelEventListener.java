@@ -1,6 +1,5 @@
 package com.dingbang.myworld.aiframework.api.event;
 
-import com.dingbang.myworld.aiframework.api.event.TurnCompleted;
 
 import java.util.Objects;
 
@@ -13,23 +12,17 @@ import java.util.Objects;
 public final class ValidatingModelEventListener implements ModelEventListener {
 
     /**
-
      * 接收已校验模型事件的下游监听器。
-
      */
     private final ModelEventListener delegate;
 
     /**
-
      * 是否已经收到完整回合。
-
      */
     private boolean receivedCompletedTurn;
 
     /**
-
      * 是否已经发送错误或正常结束通知。
-
      */
     private boolean terminated;
 
@@ -83,9 +76,7 @@ public final class ValidatingModelEventListener implements ModelEventListener {
     }
 
     /**
-
      * 仅在已经收到完整回合时转发正常结束通知。
-
      */
     @Override
     public synchronized void onComplete() {

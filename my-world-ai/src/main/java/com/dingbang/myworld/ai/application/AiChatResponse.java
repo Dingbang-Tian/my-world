@@ -1,12 +1,23 @@
 package com.dingbang.myworld.ai.application;
 
+import lombok.Value;
+
 /**
  * AI 对话响应。
  *
- * @param content 模型返回内容
- * @param model 实际使用的模型
  * @author Sebastian
  * @since 2026/09/25
  */
-public record AiChatResponse(String content, String model) {
+@Value
+public class AiChatResponse {
+
+    /**
+     * 模型返回的文本内容。
+     */
+    String content;
+
+    /**
+     * 实际使用的模型标识。
+     */
+    String model;
 }

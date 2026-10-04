@@ -16,11 +16,17 @@ import java.util.Objects;
  */
 @Data
 public final class AgentSkill {
-    /** 技能标识。 */
+    /**
+     * 技能标识。
+     */
     private final String skillId;
-    /** 模型可读的使用说明。 */
+    /**
+     * 模型可读的使用说明。
+     */
     private final String instructions;
-    /** 此技能引用的工具名称。 */
+    /**
+     * 此技能引用的工具名称。
+     */
     private final List<String> toolIds;
 
     /**

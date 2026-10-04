@@ -1,0 +1,59 @@
+# 代码生成本地开发配置模板。
+# 使用方式：先修改本文件或通过环境变量覆盖，再以 dev,codegen profile 启动。
+# 例如：SPRING_PROFILES_ACTIVE=dev,codegen
+
+my-world:
+  ai:
+    # 自研 Agent 使用 application.yml 中与 my-world-ai 相同的 Spring AI 配置。
+    # 这里仍然是自研 AI 框架自己的配置；可与 my-world-ai 配成相同值，也可以独立切换。
+    chat:
+      enabled: ${MYWORLD_AGENT_CHAT_ENABLED:true}
+      models:
+        codegen-main:
+          protocol: chat
+          provider-id: ${MYWORLD_AGENT_PROVIDER:deepseek}
+          endpoint: ${MYWORLD_AGENT_ENDPOINT:https://api.deepseek.com/v1/chat/completions}
+          model: ${MYWORLD_AGENT_MODEL:${DEEPSEEK_CHAT_MODEL:deepseek-flash}}
+          # 自研框架自己的 API Key 配置。未单独提供时，开发验证可暂时复用 DEEPSEEK_API_KEY。
+          # 生产环境建议设置 MYWORLD_AGENT_API_KEY，并与 DEEPSEEK_API_KEY 分开管理。
+          api-key: "${MYWORLD_AGENT_API_KEY:${DEEPSEEK_API_KEY:}}"
+          temperature: ${MYWORLD_AGENT_TEMPERATURE:0.2}
+          max-completion-tokens: ${MYWORLD_AGENT_MAX_COMPLETION_TOKENS:8192}
+          image-enabled: false
+          reasoning-enabled: false
+          thinking-enabled: false
+
+  agent:
+    # memory 不需要数据库即可运行；改成 mysql 后会自动执行 my-world-ai-agent 中的 Flyway 脚本。
+    storage:
+      type: ${MYWORLD_AGENT_STORAGE_TYPE:memory}
+      url: "${MYWORLD_AGENT_DB_URL:jdbc:mysql://127.0.0.1:3306/my_world_agent?useSSL=false&serverTimezone=UTC&characterEncoding=utf8&allowPublicKeyRetrieval=true}"
+      username: "${MYWORLD_AGENT_DB_USERNAME:myworld}"
+      password: "${MYWORLD_AGENT_DB_PASSWORD:}"
+
+    # 允许覆盖 Agent 公共模板和 Codegen 实际使用的 codegen/system 模板。
+    # inline 与 location 二选一；当前示例使用项目资源文件，方便直接修改。
+    prompts:
+      "[codegen/system]":
+        location: classpath:/prompts/project/codegen-system.md
+
+  codegen:
+    enabled: ${MYWORLD_CODEGEN_ENABLED:true}
+    model-id: ${MYWORLD_CODEGEN_MODEL_ID:codegen-main}
+    # 必须是已经存在的绝对目录，建议先使用独立临时工作区。
+    workspace: "${MYWORLD_CODEGEN_WORKSPACE:${user.dir}}"
+    # 写文件和执行命令都会产生真实副作用，默认关闭。
+    write-enabled: ${MYWORLD_CODEGEN_WRITE_ENABLED:true}
+    command-enabled: ${MYWORLD_CODEGEN_COMMAND_ENABLED:true}
+    plan-enabled: ${MYWORLD_CODEGEN_PLAN_ENABLED:true}
+    sub-agent-enabled: ${MYWORLD_CODEGEN_SUB_AGENT_ENABLED:true}
+    context-window-tokens: ${MYWORLD_CODEGEN_CONTEXT_WINDOW_TOKENS:32768}
+    summary-trigger-rounds: ${MYWORLD_CODEGEN_SUMMARY_TRIGGER_ROUNDS:20}
+    summary-trigger-tokens: ${MYWORLD_CODEGEN_SUMMARY_TRIGGER_TOKENS:24576}
+    reserve-output-tokens: ${MYWORLD_CODEGEN_RESERVE_OUTPUT_TOKENS:4096}
+    max-summary-tokens: ${MYWORLD_CODEGEN_MAX_SUMMARY_TOKENS:1024}
+    command-environment-allowlist:
+      - PATH
+      - JAVA_HOME
+      - LANG
+      - TMPDIR

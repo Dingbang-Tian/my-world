@@ -19,6 +19,17 @@ import java.util.Map;
 @Mapper
 public interface AgentRunMapper extends BaseMapper<AgentRunRow> {
     /**
+     * 按唯一请求键查询运行标识。
+     *
+     * @param ownerId 所有者
+     * @param appId 应用
+     * @param requestId 请求标识
+     * @return 运行标识；不存在时为空
+     */
+    @Select("SELECT id FROM agent_run WHERE owner_key=#{ownerId} AND app_id=#{appId} AND request_id=#{requestId}")
+    String runIdByRequest(@Param("ownerId") String ownerId, @Param("appId") String appId,
+                          @Param("requestId") String requestId);
+    /**
      * 保存有序运行事件。
      *
      * @param runId 运行标识

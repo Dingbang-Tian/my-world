@@ -35,7 +35,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 2026/10/03
  */
 class CodegenServiceTest {
-    /** 临时工作目录。 */
+    /**
+     * 临时工作目录。
+     */
     @TempDir
     Path workspace;
 
@@ -47,11 +49,11 @@ class CodegenServiceTest {
     @Test
     void readsWorkspaceThroughAgentWithoutWritePermission() throws Exception {
         Files.writeString(workspace.resolve("hello.txt"), "hello");
-        /** 本地模型调用次数。 */
+        // 本地模型调用次数。
         AtomicInteger calls = new AtomicInteger();
-        /** 每次模型请求的快照。 */
+        // 每次模型请求的快照。
         List<ModelRequest> requests = Collections.synchronizedList(new ArrayList<>());
-        /** 本地假模型。 */
+        // 本地假模型。
         com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
             requests.add(request);
             if (calls.incrementAndGet() == 1) {
@@ -60,12 +62,12 @@ class CodegenServiceTest {
                 textTurn(listener, "已发现 hello.txt");
             }
         };
-        /** 含应用模板的仓库。 */
+        // 含应用模板的仓库。
         PromptTemplateRegistry prompts = new PromptTemplateRegistry(new DefaultResourceLoader(),
                 Collections.emptyMap(), Collections.emptyMap());
-        /** 默认只读的应用服务。 */
+        // 默认只读的应用服务。
         CodegenService service = new CodegenFactory().create(gateway, prompts, "scripted", workspace, false);
-        /** 完成的应用结果。 */
+        // 完成的应用结果。
         AgentResult result = service.run("owner", null, "request-1", "理解这个目录");
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
         assertThat(result.getFinalText()).contains("hello.txt");
@@ -82,11 +84,11 @@ class CodegenServiceTest {
      */
     @Test
     void rejectsForgedWriteCall() {
-        /** 本地模型调用次数。 */
+        // 本地模型调用次数。
         AtomicInteger calls = new AtomicInteger();
-        /** 第二轮工具错误码。 */
+        // 第二轮工具错误码。
         List<String> errors = new ArrayList<>();
-        /** 伪造写工具的模型。 */
+        // 伪造写工具的模型。
         com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
             if (calls.incrementAndGet() == 1) {
                 toolTurn(listener, "create_file", "{\"path\":\"bad.txt\",\"content\":\"bad\"}");
@@ -96,7 +98,7 @@ class CodegenServiceTest {
                 textTurn(listener, "无法写入");
             }
         };
-        /** 只读服务。 */
+        // 只读服务。
         CodegenService service = new CodegenFactory().create(gateway,
                 new PromptTemplateRegistry(new DefaultResourceLoader(), Collections.emptyMap(), Collections.emptyMap()),
                 "scripted", workspace, false);
@@ -106,14 +108,16 @@ class CodegenServiceTest {
         assertThat(Files.exists(workspace.resolve("bad.txt"))).isFalse();
     }
 
-    /** 模型伪造未授权命令时，注册表拒绝执行且无命令报告。 */
+    /**
+     * 模型伪造未授权命令时，注册表拒绝执行且无命令报告。
+     */
     @Test
     void rejectsForgedCommandCall() {
-        /** 模型调用次数。 */
+        // 模型调用次数。
         AtomicInteger calls = new AtomicInteger();
-        /** 第二轮收到的工具错误码。 */
+        // 第二轮收到的工具错误码。
         List<String> errors = new ArrayList<>();
-        /** 伪造命令调用的模型。 */
+        // 伪造命令调用的模型。
         com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
             if (calls.incrementAndGet() == 1) {
                 toolTurn(listener, "execute_command", "{\"command\":\"echo forbidden > forbidden.txt\"}");
@@ -123,11 +127,11 @@ class CodegenServiceTest {
                 textTurn(listener, "命令未获授权");
             }
         };
-        /** 只读代码生成服务。 */
+        // 只读代码生成服务。
         CodegenService service = new CodegenFactory().create(gateway,
                 new PromptTemplateRegistry(new DefaultResourceLoader(), Collections.emptyMap(), Collections.emptyMap()),
                 "scripted", workspace, false);
-        /** 运行结果。 */
+        // 运行结果。
         AgentResult result = service.run("owner", null, "request-command-off", "执行命令");
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
         assertThat(errors).containsExactly("TOOL_NOT_FOUND");
@@ -142,9 +146,9 @@ class CodegenServiceTest {
      */
     @Test
     void createsFileAndRecordsArtifactWhenEnabled() throws Exception {
-        /** 模型调用次数。 */
+        // 模型调用次数。
         AtomicInteger calls = new AtomicInteger();
-        /** 本地脚本模型。 */
+        // 本地脚本模型。
         com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
             if (calls.incrementAndGet() == 1) {
                 assertThat(request.getTools()).hasSize(9);
@@ -155,16 +159,16 @@ class CodegenServiceTest {
                 textTurn(listener, "已创建 result.txt");
             }
         };
-        /** 启用写文件的服务。 */
+        // 启用写文件的服务。
         CodegenService service = new CodegenFactory().create(gateway,
                 new PromptTemplateRegistry(new DefaultResourceLoader(), Collections.emptyMap(), Collections.emptyMap()),
                 "scripted", workspace, true);
-        /** 完整结果。 */
+        // 完整结果。
         AgentResult result = service.run("owner", null, "request-3", "创建结果文件");
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
         assertThat(Files.readString(workspace.resolve("result.txt"))).isEqualTo("完成");
         assertThat(service.artifacts(result.getRunId())).hasSize(1);
-        assertThat(service.artifacts(result.getRunId()).get(0).action()).isEqualTo("CREATE");
+        assertThat(service.artifacts(result.getRunId()).get(0).getAction()).isEqualTo("CREATE");
     }
 
     /**
@@ -174,9 +178,9 @@ class CodegenServiceTest {
      */
     @Test
     void executesEnabledPlanWithSharedFileTools() throws Exception {
-        /** 本地模型回合编号。 */
+        // 本地模型回合编号。
         AtomicInteger turn = new AtomicInteger();
-        /** 逐步创建文件并检查步骤传递的假模型。 */
+        // 逐步创建文件并检查步骤传递的假模型。
         com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
             switch (turn.incrementAndGet()) {
                 case 1 -> {
@@ -200,12 +204,12 @@ class CodegenServiceTest {
                 default -> throw new AssertionError("多余模型回合");
             }
         };
-        /** 授权文件写入与计划的应用服务。 */
+        // 授权文件写入与计划的应用服务。
         CodegenService service = new CodegenFactory().create(gateway,
                 new PromptTemplateRegistry(new DefaultResourceLoader(), Collections.emptyMap(),
                         Collections.emptyMap()), "scripted", workspace, true, false,
                 List.of("PATH"), true);
-        /** 真实应用运行结果。 */
+        // 真实应用运行结果。
         AgentResult result = service.run("owner", null, "plan-enabled", "创建并检查文件");
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
         assertThat(turn.get()).isEqualTo(5);
@@ -221,16 +225,16 @@ class CodegenServiceTest {
     @Test
     void delegatesReadOnlyCodeReviewToSubAgent() throws Exception {
         Files.writeString(workspace.resolve("Review.java"), "class Review {}\n");
-        /** 父级模型回合数。 */
+        // 父级模型回合数。
         AtomicInteger parentTurns = new AtomicInteger();
-        /** 子级模型回合数。 */
+        // 子级模型回合数。
         AtomicInteger childTurns = new AtomicInteger();
-        /** 所有模型请求的快照。 */
+        // 所有模型请求的快照。
         List<ModelRequest> requests = Collections.synchronizedList(new ArrayList<>());
-        /** 脚本模型中的独立子任务和父任务。 */
+        // 脚本模型中的独立子任务和父任务。
         com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
             requests.add(request);
-            /** 第一条系统消息的文本。 */
+            // 第一条系统消息的文本。
             String system = ((TextContentBlock) request.getMessages().get(0).getContentBlocks().get(0)).getText();
             if (system.contains("独立会话")) {
                 if (childTurns.incrementAndGet() == 1) {
@@ -246,17 +250,17 @@ class CodegenServiceTest {
                 textTurn(listener, "子 Agent 已检查 Review.java");
             }
         };
-        /** 父级明确拥有文件写权限和委派能力的应用服务。 */
+        // 父级明确拥有文件写权限和委派能力的应用服务。
         CodegenService service = new CodegenFactory().create(gateway,
                 new PromptTemplateRegistry(new DefaultResourceLoader(), Collections.emptyMap(),
                         Collections.emptyMap()), "scripted", workspace, true, false,
                 List.of("PATH"), false, true);
-        /** 完整父级结果。 */
+        // 完整父级结果。
         AgentResult result = service.run("owner", null, "sub-agent-review", "委派独立审查 Review.java");
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
         assertThat(parentTurns.get()).isEqualTo(2);
         assertThat(childTurns.get()).isEqualTo(2);
-        /** 子级首次模型请求。 */
+        // 子级首次模型请求。
         ModelRequest childRequest = requests.stream().filter(request ->
                 ((TextContentBlock) request.getMessages().get(0).getContentBlocks().get(0))
                         .getText().contains("独立会话")).findFirst().orElseThrow();
@@ -275,7 +279,7 @@ class CodegenServiceTest {
      * @param arguments 参数 JSON
      */
     private static void toolTurn(ModelEventListener listener, String name, String arguments) {
-        /** 工具调用消息。 */
+        // 工具调用消息。
         Message assistant = new Message("assistant-tool", Role.ASSISTANT, List.of(),
                 List.of(new ToolCall("call-1", name, arguments)), List.of(), Collections.emptyMap());
         listener.onEvent(new TurnCompleted(new ModelTurn(assistant, ModelFinishReason.TOOL_CALLS)));
@@ -289,7 +293,7 @@ class CodegenServiceTest {
      * @param answer 最终答案
      */
     private static void textTurn(ModelEventListener listener, String answer) {
-        /** 助手最终消息。 */
+        // 助手最终消息。
         Message assistant = new Message("assistant-final", Role.ASSISTANT,
                 List.of(new TextContentBlock(answer)), List.of(), List.of(), Collections.emptyMap());
         listener.onEvent(new TurnCompleted(new ModelTurn(assistant, ModelFinishReason.STOP)));

@@ -10,15 +10,25 @@ import lombok.Data;
  */
 @Data
 public final class ContextPolicy {
-    /** 模型输入和预留输出合计的估算窗口。 */
+    /**
+     * 模型输入和预留输出合计的估算窗口。
+     */
     private final int windowTokens;
-    /** 未覆盖交换达到此数量时触发摘要。 */
+    /**
+     * 未覆盖交换达到此数量时触发摘要。
+     */
     private final int triggerRounds;
-    /** 当前输入估算达到此数量时触发摘要。 */
+    /**
+     * 当前输入估算达到此数量时触发摘要。
+     */
     private final int triggerTokens;
-    /** 为普通回答预留的 token 数。 */
+    /**
+     * 为普通回答预留的 token 数。
+     */
     private final int reserveOutputTokens;
-    /** 摘要最多允许的估算 token 数。 */
+    /**
+     * 摘要最多允许的估算 token 数。
+     */
     private final int maxSummaryTokens;
 
     /**

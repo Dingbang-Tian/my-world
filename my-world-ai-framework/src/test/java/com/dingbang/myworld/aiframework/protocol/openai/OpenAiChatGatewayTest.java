@@ -1,12 +1,13 @@
 package com.dingbang.myworld.aiframework.protocol.openai;
 
+import com.dingbang.myworld.aiframework.model.content.MediaKind;
+
 import com.dingbang.myworld.aiframework.api.ModelFinishReason;
 import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.api.ModelRequest;
 import com.dingbang.myworld.aiframework.api.ModelToolDefinition;
 import com.dingbang.myworld.aiframework.api.ModelTurn;
 import com.dingbang.myworld.aiframework.api.event.ModelEvent;
-import com.dingbang.myworld.aiframework.api.event.ModelEventListener;
 import com.dingbang.myworld.aiframework.api.event.ReasoningDelta;
 import com.dingbang.myworld.aiframework.api.event.TextDelta;
 import com.dingbang.myworld.aiframework.api.event.TurnCompleted;
@@ -50,9 +51,9 @@ class OpenAiChatGatewayTest {
      */
     @Test
     void explicitThinkingSwitchAndImageDoNotLeakAcrossCalls() throws Exception {
-        /** 已接收的请求体。 */
+        // 已接收的请求体。
         List<JsonNode> requests = new ArrayList<>();
-        /** 本地 fixture 服务。 */
+        // 本地 fixture 服务。
         HttpServer server = server();
         server.createContext("/v1/chat/completions", exchange -> {
             requests.add(mapper.readTree(exchange.getRequestBody().readAllBytes()));
@@ -60,31 +61,33 @@ class OpenAiChatGatewayTest {
         });
         server.start();
         try {
-            /** 显式启用兼容能力的模型实例。 */
+            // 显式启用兼容能力的模型实例。
             OpenAiChatGateway gateway = new OpenAiChatGateway(List.of(new OpenAiChatModelConfig("local", "qwen",
                     java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/v1/chat/completions"),
                     "wire-model", "test-only-key", ModelOptions.empty(), true, true, true)));
-            /** 带图片的用户输入。 */
+            // 带图片的用户输入。
             Message image = new Message("u", Role.USER, List.of(new TextContentBlock("看图"),
-                    new MediaContentBlock(MediaContentBlock.Kind.IMAGE, "image/png", "x.png", null,
+                    new MediaContentBlock(MediaKind.IMAGE, "image/png", "x.png", null,
                             new byte[]{1, 2})), List.of(), List.of(), Map.of());
-            /** 首轮记录。 */
-            Recorder first = new Recorder();
+            // 首轮记录。
+            OpenAiChatGatewayTestRecorder first = new OpenAiChatGatewayTestRecorder();
             gateway.generate(new ModelRequest("local", List.of(image), List.of(),
                     new ModelOptions(null, null, null, false)), first);
             assertThat(first.error).isNull();
             assertThat(requests.get(0).path("chat_template_kwargs").path("enable_thinking").asBoolean()).isFalse();
             assertThat(requests.get(0).path("messages").get(0).path("content").get(1)
                     .path("image_url").path("url").asText()).startsWith("data:image/png;base64,");
-            /** 第二轮记录。 */
-            Recorder second = new Recorder();
+            // 第二轮记录。
+            OpenAiChatGatewayTestRecorder second = new OpenAiChatGatewayTestRecorder();
             gateway.generate(new ModelRequest("local", List.of(textMessage("u2", Role.USER, "你好"))), second);
             assertThat(second.error).isNull();
             assertThat(requests.get(1).has("chat_template_kwargs")).isFalse();
         } finally { server.stop(0); }
     }
 
-    /** JSON 测试解析器。 */
+    /**
+     * JSON 测试解析器。
+     */
     private final ObjectMapper mapper = new ObjectMapper();
 
     /**
@@ -94,11 +97,11 @@ class OpenAiChatGatewayTest {
      */
     @Test
     void streamsToolsUsageAndHistory() throws Exception {
-        /** 收到的 HTTP 请求体。 */
+        // 收到的 HTTP 请求体。
         List<JsonNode> requests = new ArrayList<>();
-        /** 本地请求计数。 */
+        // 本地请求计数。
         AtomicInteger count = new AtomicInteger();
-        /** 只在本机监听的测试服务。 */
+        // 只在本机监听的测试服务。
         HttpServer server = server();
         server.createContext("/v1/chat/completions", exchange -> {
             requests.add(mapper.readTree(exchange.getRequestBody().readAllBytes()));
@@ -114,14 +117,14 @@ class OpenAiChatGatewayTest {
         });
         server.start();
         try {
-            /** 本地配置的模型网关。 */
+            // 本地配置的模型网关。
             OpenAiChatGateway gateway = gateway(server);
-            /** 首轮监听器。 */
-            Recorder first = new Recorder();
+            // 首轮监听器。
+            OpenAiChatGatewayTestRecorder first = new OpenAiChatGatewayTestRecorder();
             gateway.generate(new ModelRequest("local", Collections.singletonList(textMessage("u", Role.USER, "计算")),
                     Collections.singletonList(new ModelToolDefinition("add", "加法", "{\"type\":\"object\"}")),
                     new ModelOptions(0.2, null, "low")), first);
-            /** 首轮完整结果。 */
+            // 首轮完整结果。
             ModelTurn turn = first.turn();
             assertThat(first.error).isNull();
             assertThat(first.completed).isEqualTo(1);
@@ -143,12 +146,12 @@ class OpenAiChatGatewayTest {
             assertThat(requests.get(0).path("reasoning_effort").asText()).isEqualTo("low");
             assertThat(requests.get(0).path("tools").get(0).path("function").path("parameters").isObject()).isTrue();
 
-            /** 首轮工具结果消息。 */
+            // 首轮工具结果消息。
             Message toolResult = new Message("t", Role.TOOL, Collections.emptyList(), Collections.emptyList(),
                     Collections.singletonList(new ToolResult("a", ToolResultStatus.SUCCESS, "5", null, false)),
                     Collections.emptyMap());
-            /** 第二轮监听器。 */
-            Recorder second = new Recorder();
+            // 第二轮监听器。
+            OpenAiChatGatewayTestRecorder second = new OpenAiChatGatewayTestRecorder();
             gateway.generate(new ModelRequest("local", Arrays.asList(textMessage("u", Role.USER, "计算"),
                     turn.getAssistantMessage(), toolResult)), second);
             assertThat(second.error).isNull();
@@ -176,12 +179,12 @@ class OpenAiChatGatewayTest {
      */
     @Test
     void reportsHttpErrorsAndBrokenStreams() throws Exception {
-        /** 本地测试服务。 */
+        // 本地测试服务。
         HttpServer server = server();
-        /** 下一次响应使用的状态码。 */
+        // 下一次响应使用的状态码。
         AtomicInteger status = new AtomicInteger(401);
         server.createContext("/v1/chat/completions", exchange -> {
-            /** 当前响应状态。 */
+            // 当前响应状态。
             int code = status.get();
             if (code != 200) {
                 respond(exchange, code, "private error body");
@@ -191,13 +194,13 @@ class OpenAiChatGatewayTest {
         });
         server.start();
         try {
-            /** 被测模型网关。 */
+            // 被测模型网关。
             OpenAiChatGateway gateway = gateway(server);
-            /** 当前待测试的 HTTP 错误状态码。 */
+            // 当前待测试的 HTTP 错误状态码。
             for (int code : new int[]{401, 429, 500}) {
                 status.set(code);
-                /** 当前错误响应的监听器。 */
-                Recorder recorder = new Recorder();
+                // 当前错误响应的监听器。
+                OpenAiChatGatewayTestRecorder recorder = new OpenAiChatGatewayTestRecorder();
                 gateway.generate(request(), recorder);
                 assertThat(recorder.error).isInstanceOf(OpenAiChatProtocolException.class)
                         .hasMessageContaining(Integer.toString(code)).hasMessageNotContaining("private error body");
@@ -205,8 +208,8 @@ class OpenAiChatGatewayTest {
                 assertThat(recorder.completed).isZero();
             }
             status.set(200);
-            /** 已给出 finish_reason 却缺少 DONE 的响应。 */
-            Recorder broken = new Recorder();
+            // 已给出 finish_reason 却缺少 DONE 的响应。
+            OpenAiChatGatewayTestRecorder broken = new OpenAiChatGatewayTestRecorder();
             gateway.generate(request(), broken);
             assertThat(broken.error).hasMessageContaining("[DONE]");
             assertThat(broken.events).extracting(ModelEvent::getClass).containsExactly(TextDelta.class);
@@ -223,15 +226,15 @@ class OpenAiChatGatewayTest {
      */
     @Test
     void retainsUnknownFinishReason() throws Exception {
-        /** 本地测试服务。 */
+        // 本地测试服务。
         HttpServer server = server();
         server.createContext("/v1/chat/completions", exchange -> respond(exchange, 200,
                 "data: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"new_reason\"}]}\n\n"
                         + "data: [DONE]\n\n"));
         server.start();
         try {
-            /** 完整回合记录器。 */
-            Recorder recorder = new Recorder();
+            // 完整回合记录器。
+            OpenAiChatGatewayTestRecorder recorder = new OpenAiChatGatewayTestRecorder();
             gateway(server).generate(request(), recorder);
             assertThat(recorder.error).isNull();
             assertThat(recorder.turn().getFinishReason()).isEqualTo(ModelFinishReason.UNKNOWN);
@@ -247,9 +250,9 @@ class OpenAiChatGatewayTest {
      */
     @Test
     void isolatesRegisteredModelsAndCallOptions() throws Exception {
-        /** 按发送顺序保存的 HTTP 请求。 */
+        // 按发送顺序保存的 HTTP 请求。
         List<JsonNode> requests = new ArrayList<>();
-        /** 本地测试服务。 */
+        // 本地测试服务。
         HttpServer server = server();
         server.createContext("/v1/chat/completions", exchange -> {
             requests.add(mapper.readTree(exchange.getRequestBody().readAllBytes()));
@@ -258,19 +261,19 @@ class OpenAiChatGatewayTest {
         });
         server.start();
         try {
-            /** 两个模型共用的本地接口地址。 */
+            // 两个模型共用的本地接口地址。
             java.net.URI endpoint = java.net.URI.create("http://127.0.0.1:"
                     + server.getAddress().getPort() + "/v1/chat/completions");
-            /** 已注册两个独立实例的网关。 */
+            // 已注册两个独立实例的网关。
             OpenAiChatGateway gateway = new OpenAiChatGateway(Arrays.asList(
                     new OpenAiChatModelConfig("fast", "fixture", endpoint, "wire-fast", "key-fast",
                             new ModelOptions(0.1, 20, null)),
                     new OpenAiChatModelConfig("deep", "fixture", endpoint, "wire-deep", "key-deep",
                             new ModelOptions(0.9, 200, null))));
             gateway.generate(new ModelRequest("fast", request().getMessages(), Collections.emptyList(),
-                    new ModelOptions(0.4, null, null)), new Recorder());
-            gateway.generate(new ModelRequest("deep", request().getMessages()), new Recorder());
-            gateway.generate(new ModelRequest("fast", request().getMessages()), new Recorder());
+                    new ModelOptions(0.4, null, null)), new OpenAiChatGatewayTestRecorder());
+            gateway.generate(new ModelRequest("deep", request().getMessages()), new OpenAiChatGatewayTestRecorder());
+            gateway.generate(new ModelRequest("fast", request().getMessages()), new OpenAiChatGatewayTestRecorder());
             assertThat(requests).hasSize(3);
             assertThat(requests).extracting(node -> node.path("model").asText())
                     .containsExactly("wire-fast", "wire-deep", "wire-fast");
@@ -337,62 +340,14 @@ class OpenAiChatGatewayTest {
      */
     private static void respond(com.sun.net.httpserver.HttpExchange exchange, int status, String body)
             throws IOException {
-        /** UTF-8 响应内容。 */
+        // UTF-8 响应内容。
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "text/event-stream; charset=utf-8");
         exchange.sendResponseHeaders(status, bytes.length);
-        /** 当前响应体的输出流。 */
+        // 当前响应体的输出流。
         try (java.io.OutputStream output = exchange.getResponseBody()) {
             output.write(bytes);
         }
     }
 
-    /**
-     * 记录单次模型调用中的事件与终态。
-     */
-    private static final class Recorder implements ModelEventListener {
-        /** 按顺序收到的模型事件。 */
-        private final List<ModelEvent> events = new ArrayList<>();
-        /** 模型失败原因。 */
-        private Throwable error;
-        /** 正常完成次数。 */
-        private int completed;
-
-        /**
-         * 保存模型事件。
-         *
-         * @param event 当前模型事件
-         */
-        @Override
-        public void onEvent(ModelEvent event) {
-            events.add(event);
-        }
-
-        /**
-         * 保存模型错误。
-         *
-         * @param error 失败原因
-         */
-        @Override
-        public void onError(Throwable error) {
-            this.error = error;
-        }
-
-        /**
-         * 记录正常结束通知。
-         */
-        @Override
-        public void onComplete() {
-            completed++;
-        }
-
-        /**
-         * 读取唯一完整模型回合。
-         *
-         * @return 完整回合
-         */
-        private ModelTurn turn() {
-            return ((TurnCompleted) events.get(events.size() - 1)).getTurn();
-        }
-    }
 }

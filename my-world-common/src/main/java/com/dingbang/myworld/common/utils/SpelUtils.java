@@ -21,7 +21,13 @@ import java.lang.reflect.Method;
  */
 public class SpelUtils {
 
+    /**
+     * SpEL 表达式解析器。
+     */
     private static ExpressionParser parser = new SpelExpressionParser();
+    /**
+     * 方法参数名解析器。
+     */
     private static final ParameterNameDiscoverer discoverer = new DefaultParameterNameDiscoverer();
 
     /**

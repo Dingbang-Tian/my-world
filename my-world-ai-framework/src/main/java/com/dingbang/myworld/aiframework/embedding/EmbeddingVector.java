@@ -1,5 +1,7 @@
 package com.dingbang.myworld.aiframework.embedding;
 
+import lombok.Value;
+
 import java.util.List;
 
 /**
@@ -8,7 +10,23 @@ import java.util.List;
  * @author Sebastian
  * @since 2026/10/03
  */
-public record EmbeddingVector(int index, String type, List<Double> values) {
+@Value
+public class EmbeddingVector {
+
+    /**
+     * 原始输入在请求中的位置。
+     */
+    int index;
+
+    /**
+     * 供应商报告的向量类型，可为空。
+     */
+    String type;
+
+    /**
+     * 不可变的有限浮点向量。
+     */
+    List<Double> values;
     /**
      * 验证向量各分量。
      *
@@ -16,14 +34,20 @@ public record EmbeddingVector(int index, String type, List<Double> values) {
      * @param type 供应商报告的向量类型，可为空
      * @param values 非空有限浮点数列表
      */
-    public EmbeddingVector {
+    public EmbeddingVector(int index, String type, List<Double> values) {
         if (index < 0 || values == null || values.isEmpty()
                 || values.stream().anyMatch(value -> value == null || !Double.isFinite(value))) {
             throw new IllegalArgumentException("向量数据无效");
         }
-        values = List.copyOf(values);
+        this.index = index;
+        this.type = type;
+        this.values = List.copyOf(values);
     }
 
-    /** @return 向量维度 */
-    public int dimension() { return values.size(); }
+    /**
+     * @return 向量维度
+     */
+    public int getDimension() {
+        return values.size();
+    }
 }

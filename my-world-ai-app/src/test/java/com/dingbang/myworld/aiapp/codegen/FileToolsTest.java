@@ -26,7 +26,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 2026/10/03
  */
 class FileToolsTest {
-    /** 测试用临时工作目录。 */
+    /**
+     * 测试用临时工作目录。
+     */
     @TempDir
     Path workspace;
 
@@ -37,26 +39,26 @@ class FileToolsTest {
      */
     @Test
     void readsSearchesAndEditsWithVersion() throws Exception {
-        /** 测试文件。 */
+        // 测试文件。
         Path file = workspace.resolve("src/demo.txt");
         Files.createDirectories(file.getParent());
         Files.writeString(file, "alpha\r\nbeta\r\ngamma\r\n");
-        /** 文件工具执行器。 */
+        // 文件工具执行器。
         ToolExecutor executor = executor();
-        /** 读取结果。 */
+        // 读取结果。
         ToolResult view = invoke(executor, "view_file", """ 
                 {"path":"src/demo.txt","startLine":2,"endLine":3}
                 """);
         assertThat(view.getStatus()).isEqualTo(ToolResultStatus.SUCCESS);
         assertThat(view.getContent()).contains("2: beta", "3: gamma", "lines=3");
-        /** 当前版本。 */
+        // 当前版本。
         String version = hash(view.getContent());
-        /** 多词搜索结果。 */
+        // 多词搜索结果。
         ToolResult found = invoke(executor, "search_in_file", """
                 {"path":"src/demo.txt","keywords":["beta","other"],"contextLines":1}
                 """);
         assertThat(found.getContent()).contains("1: alpha", "2: beta", "3: gamma");
-        /** 插入后的工具结果。 */
+        // 插入后的工具结果。
         ToolResult edited = invoke(executor, "edit_file", """
                 {"path":"src/demo.txt","expectedHash":"%s","mode":"INSERT","content":"new\\r\\n","line":2}
                 """.formatted(version));
@@ -66,7 +68,7 @@ class FileToolsTest {
                 {"path":"src/demo.txt","expectedHash":"%s","mode":"APPEND","content":"late"}
                 """.formatted(version)).getStatus()).isEqualTo(ToolResultStatus.ERROR);
         assertThat(Files.readString(file)).doesNotContain("late");
-        /** 插入后重新读取的版本。 */
+        // 插入后重新读取的版本。
         String updatedVersion = hash(invoke(executor, "view_file", """
                 {"path":"src/demo.txt"}
                 """).getContent());
@@ -83,7 +85,7 @@ class FileToolsTest {
      */
     @Test
     void createsMovesAndDeletesWithoutOverwrite() throws Exception {
-        /** 文件工具执行器。 */
+        // 文件工具执行器。
         ToolExecutor executor = executor();
         assertThat(invoke(executor, "create_file", """
                 {"path":"new/a.txt","content":"hello"}
@@ -97,7 +99,7 @@ class FileToolsTest {
         assertThat(invoke(executor, "create_file", """
                 {"path":"new/a.txt","content":"overwrite"}
                 """).getStatus()).isEqualTo(ToolResultStatus.ERROR);
-        /** 已创建的原文。 */
+        // 已创建的原文。
         String version = hash(invoke(executor, "view_file", """
                 {"path":"new/a.txt"}
                 """).getContent());
@@ -120,21 +122,21 @@ class FileToolsTest {
      */
     @Test
     void rejectsEscapesLinksAndConcurrentChanges() throws Exception {
-        /** 文件工具执行器。 */
+        // 文件工具执行器。
         ToolExecutor executor = executor();
         assertThat(invoke(executor, "create_file", """
                 {"path":"../escape.txt","content":"bad"}
                 """).getStatus()).isEqualTo(ToolResultStatus.ERROR);
-        /** 指向工作目录外的符号链接。 */
+        // 指向工作目录外的符号链接。
         Path link = workspace.resolve("linked");
         Files.createSymbolicLink(link, workspace.getParent());
         assertThat(invoke(executor, "create_file", """
                 {"path":"linked/escape.txt","content":"bad"}
                 """).getStatus()).isEqualTo(ToolResultStatus.ERROR);
-        /** 被并发改动的文件。 */
+        // 被并发改动的文件。
         Path file = workspace.resolve("fresh.txt");
         Files.writeString(file, "old", StandardCharsets.UTF_8);
-        /** 读取时的版本。 */
+        // 读取时的版本。
         String version = hash(invoke(executor, "view_file", """
                 {"path":"fresh.txt"}
                 """).getContent());
@@ -152,12 +154,12 @@ class FileToolsTest {
      */
     @Test
     void boundsDirectoryAndFileReads() throws Exception {
-        /** 文件工具执行器。 */
+        // 文件工具执行器。
         ToolExecutor executor = executor();
         assertThat(invoke(executor, "list_directory_tree", """
                 {"path":"","depth":3}
                 """).getContent()).contains("空目录");
-        /** 嵌套目录。 */
+        // 嵌套目录。
         Path nested = workspace.resolve("a/b");
         Files.createDirectories(nested);
         Files.writeString(nested.resolve("deep.txt"), "deep");
@@ -167,12 +169,12 @@ class FileToolsTest {
         assertThat(invoke(executor, "list_directory_tree", """
                 {"path":"","depth":3}
                 """).getContent()).contains("deep.txt");
-        /** 超过输出长度但在读取上限内的文本。 */
+        // 超过输出长度但在读取上限内的文本。
         Files.writeString(workspace.resolve("large.txt"), "x".repeat(20000));
         assertThat(invoke(executor, "view_file", """
                 {"path":"large.txt"}
                 """).isTruncated()).isTrue();
-        /** 无效 UTF-8 字节。 */
+        // 无效 UTF-8 字节。
         Files.write(workspace.resolve("binary.dat"), new byte[] {(byte) 0xff});
         assertThat(invoke(executor, "view_file", """
                 {"path":"binary.dat"}
@@ -186,7 +188,7 @@ class FileToolsTest {
      */
     @Test
     void searchesDirectoryAndRejectsMoveConflicts() throws Exception {
-        /** 文件工具执行器。 */
+        // 文件工具执行器。
         ToolExecutor executor = executor();
         Files.writeString(workspace.resolve("one.txt"), "first\nneedle\nlast\n");
         Files.writeString(workspace.resolve("two.java"), "other\n");
@@ -196,7 +198,7 @@ class FileToolsTest {
         assertThat(invoke(executor, "search_in_directory", """
                 {"path":"","patterns":["needle","absent"],"contextLines":1}
                 """).getContent()).contains("one.txt", "1: first", "2: needle", "3: last");
-        /** 源文件版本。 */
+        // 源文件版本。
         String version = hash(invoke(executor, "view_file", """
                 {"path":"one.txt"}
                 """).getContent());
@@ -241,7 +243,7 @@ class FileToolsTest {
      * @return 文件哈希
      */
     private String hash(String content) {
-        /** 哈希匹配器。 */
+        // 哈希匹配器。
         Matcher matcher = Pattern.compile("sha256=([0-9a-f]{64})").matcher(content);
         assertThat(matcher.find()).isTrue();
         return matcher.group(1);

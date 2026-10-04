@@ -57,10 +57,14 @@ public final class AgentEvent {
      */
     private final ToolExecutionEvent toolExecution;
 
-    /** 单次模型调用用量，仅 USAGE 事件时非 null。 */
+    /**
+     * 单次模型调用用量，仅 USAGE 事件时非 null。
+     */
     private final ModelTokenUsage usage;
 
-    /** 计划生命周期内容，仅计划事件时非 null。 */
+    /**
+     * 计划生命周期内容，仅计划事件时非 null。
+     */
     private final PlanEvent plan;
 
     /**
@@ -155,7 +159,7 @@ public final class AgentEvent {
                 && (text != null || result != null || toolExecution != null || usage == null || plan != null)) {
             throw new IllegalArgumentException("用量事件必须只包含模型用量");
         }
-        /** 当前是否为计划生命周期事件。 */
+        // 当前是否为计划生命周期事件。
         boolean planType = type == AgentEventType.PLAN_CREATED || type == AgentEventType.PLAN_STEP_STARTED
                 || type == AgentEventType.PLAN_STEP_FINISHED || type == AgentEventType.PLAN_FINISHED;
         if (planType && (plan == null || text != null || result != null

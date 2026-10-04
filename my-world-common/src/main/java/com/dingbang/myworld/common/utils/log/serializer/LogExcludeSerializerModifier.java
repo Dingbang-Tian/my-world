@@ -18,6 +18,9 @@ import java.util.List;
  */
 public class LogExcludeSerializerModifier extends BeanSerializerModifier {
 
+    /**
+     * 敏感字段的 JSON 序列化器。
+     */
     private final SensitiveJsonSerializer sensitiveJsonSerializer = new SensitiveJsonSerializer();
 
     @Override

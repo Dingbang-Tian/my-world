@@ -12,11 +12,17 @@ import java.util.Objects;
  */
 @Data
 public final class ModelExecutionContext {
-    /** 全局截止时间；直接调用网关可为空。 */
+    /**
+     * 全局截止时间；直接调用网关可为空。
+     */
     private final Instant deadline;
-    /** 与调用方共享的取消令牌。 */
+    /**
+     * 与调用方共享的取消令牌。
+     */
     private final CancellationToken cancellation;
-    /** 本次响应的最大 UTF-16 字符数，包含文本、推理和工具参数。 */
+    /**
+     * 本次响应的最大 UTF-16 字符数，包含文本、推理和工具参数。
+     */
     private final int maxOutputCharacters;
 
     /**

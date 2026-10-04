@@ -19,7 +19,13 @@ import java.util.Date;
 @Slf4j
 public class ZonedDateTimeUtils {
 
+    /**
+     * 二十四点的文本表示。
+     */
     public static final String STRING_24_HOUR = "24:00";
+    /**
+     * 零点的文本表示。
+     */
     public static final String STRING_0_HOUR = "00:00";
 
     /**

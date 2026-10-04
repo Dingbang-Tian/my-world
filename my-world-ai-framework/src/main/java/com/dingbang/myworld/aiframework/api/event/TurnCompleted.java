@@ -1,7 +1,6 @@
 package com.dingbang.myworld.aiframework.api.event;
 
 import com.dingbang.myworld.aiframework.api.ModelTurn;
-import com.dingbang.myworld.aiframework.api.event.ModelEvent;
 import lombok.Data;
 
 import java.util.Objects;

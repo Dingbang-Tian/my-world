@@ -118,6 +118,9 @@ public class TimeIntervalUtils {
         return result;
     }
 
+    /**
+     * 时间区间输出使用的格式器。
+     */
     static DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     public static void main(String[] args) {

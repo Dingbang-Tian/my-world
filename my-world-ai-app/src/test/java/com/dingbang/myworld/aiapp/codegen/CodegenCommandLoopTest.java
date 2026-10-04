@@ -1,7 +1,6 @@
 package com.dingbang.myworld.aiapp.codegen;
 
 import com.dingbang.myworld.agent.api.AgentEvent;
-import com.dingbang.myworld.agent.api.AgentEventListener;
 import com.dingbang.myworld.agent.api.AgentEventType;
 import com.dingbang.myworld.agent.api.AgentResult;
 import com.dingbang.myworld.agent.api.AgentResultStatus;
@@ -42,10 +41,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 2026/10/03
  */
 class CodegenCommandLoopTest {
-    /** 代码生成的临时目录。 */
+    /**
+     * 代码生成的临时目录。
+     */
     @TempDir
     Path workspace;
-    /** 测试 JSON 编码器。 */
+    /**
+     * 测试 JSON 编码器。
+     */
     private final ObjectMapper json = new ObjectMapper();
 
     /**
@@ -55,15 +58,15 @@ class CodegenCommandLoopTest {
      */
     @Test
     void generatesCompilesCorrectsAndReports() throws Exception {
-        /** 当前 JDK 的编译与运行命令。 */
+        // 当前 JDK 的编译与运行命令。
         String javaHome = System.getProperty("java.home");
-        /** 模型请求的顺序号。 */
+        // 模型请求的顺序号。
         AtomicInteger turn = new AtomicInteger();
-        /** 收集到的工具结果轨迹。 */
+        // 收集到的工具结果轨迹。
         List<ToolResult> results = Collections.synchronizedList(new ArrayList<>());
-        /** 确定性假模型。 */
+        // 确定性假模型。
         com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
-            /** 当前回合编号。 */
+            // 当前回合编号。
             int current = turn.incrementAndGet();
             if (current > 1) {
                 results.add(lastToolResult(request));
@@ -78,7 +81,7 @@ class CodegenCommandLoopTest {
                     toolTurn(listener, current, "view_file", Map.of("path", "HelloAgent.java"));
                 }
                 case 4 -> {
-                    /** 从真实文件读取结果获得的版本。 */
+                    // 从真实文件读取结果获得的版本。
                     String hash = results.get(2).getContent().substring(7, 71);
                     toolTurn(listener, current, "edit_file", Map.of("path", "HelloAgent.java",
                             "expectedHash", hash, "mode", "append", "content", "}\n"));
@@ -92,28 +95,17 @@ class CodegenCommandLoopTest {
                 default -> throw new AssertionError("意外模型回合: " + current);
             }
         };
-        /** 配置开启写文件和命令的代码生成服务。 */
+        // 配置开启写文件和命令的代码生成服务。
         CodegenService service = new CodegenFactory().create(gateway,
                 new PromptTemplateRegistry(new DefaultResourceLoader(), Map.of(), Map.of()),
                 "scripted", workspace, true, true, List.of("PATH", "JAVA_HOME"));
-        /** 可观察的运行句柄。 */
+        // 可观察的运行句柄。
         AgentRun run = service.prepare("owner", null, "s12-request", "生成并验证 HelloAgent.java");
-        /** 运行事件轨迹。 */
+        // 运行事件轨迹。
         List<AgentEvent> events = Collections.synchronizedList(new ArrayList<>());
-        run.subscribe(new AgentEventListener() {
-            /** {@inheritDoc} */
-            @Override
-            public void onEvent(AgentEvent event) {
-                events.add(event);
-            }
-
-            /** {@inheritDoc} */
-            @Override
-            public void onComplete() {
-            }
-        });
+        run.subscribe(new CollectingAgentEventListener(events));
         run.execute();
-        /** 最终结果。 */
+        // 最终结果。
         AgentResult result = run.getResult().toCompletableFuture().get(20, TimeUnit.SECONDS);
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
         assertThat(turn.get()).isEqualTo(6);
@@ -124,8 +116,8 @@ class CodegenCommandLoopTest {
         assertThat(Files.exists(workspace.resolve("HelloAgent.class"))).isTrue();
         assertThat(service.artifacts(result.getRunId())).extracting("action").containsExactly("CREATE", "EDIT");
         assertThat(service.commandReports(result.getRunId())).hasSize(2);
-        assertThat(service.commandReports(result.getRunId()).get(0).exitCode()).isEqualTo(1);
-        assertThat(service.commandReports(result.getRunId()).get(1).output()).contains("HelloAgent");
+        assertThat(service.commandReports(result.getRunId()).get(0).getExitCode()).isEqualTo(1);
+        assertThat(service.commandReports(result.getRunId()).get(1).getOutput()).contains("HelloAgent");
         assertThat(events).anyMatch(event -> event.getType() == AgentEventType.TOOL_EXECUTION);
     }
 
@@ -136,13 +128,13 @@ class CodegenCommandLoopTest {
      */
     @Test
     void planCarriesCompileFailureIntoCorrectionStep() throws Exception {
-        /** 当前 JDK 的编译与运行命令。 */
+        // 当前 JDK 的编译与运行命令。
         String javaHome = System.getProperty("java.home");
-        /** 模型请求序号。 */
+        // 模型请求序号。
         AtomicInteger turn = new AtomicInteger();
-        /** 本地确定性计划模型。 */
+        // 本地确定性计划模型。
         com.dingbang.myworld.aiframework.api.ModelGateway gateway = (request, listener) -> {
-            /** 当前全局模型回合。 */
+            // 当前全局模型回合。
             int current = turn.incrementAndGet();
             switch (current) {
                 case 1 -> toolJson(listener, current, "create_plan", json.valueToTree(Map.of(
@@ -165,7 +157,7 @@ class CodegenCommandLoopTest {
                     toolTurn(listener, current, "view_file", Map.of("path", "HelloAgent.java"));
                 }
                 case 7 -> {
-                    /** 真实 view_file 返回的内容版本。 */
+                    // 真实 view_file 返回的内容版本。
                     String hash = lastToolResult(request).getContent().substring(7, 71);
                     toolTurn(listener, current, "edit_file", Map.of("path", "HelloAgent.java",
                             "expectedHash", hash, "mode", "append", "content", "}\n"));
@@ -184,11 +176,11 @@ class CodegenCommandLoopTest {
                 default -> throw new AssertionError("多余模型回合");
             }
         };
-        /** 同时授权文件、命令与计划的代码生成服务。 */
+        // 同时授权文件、命令与计划的代码生成服务。
         CodegenService service = new CodegenFactory().create(gateway,
                 new PromptTemplateRegistry(new DefaultResourceLoader(), Map.of(), Map.of()),
                 "scripted", workspace, true, true, List.of("PATH", "JAVA_HOME", "LANG", "TMPDIR"), true);
-        /** 真实计划运行结果。 */
+        // 真实计划运行结果。
         AgentResult result = service.run("owner", null, "s13-codegen", "生成、编译并修正 Java 文件");
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.FAILED);
         assertThat(result.getError().getCode()).isEqualTo("PLAN_FAILED");
@@ -213,7 +205,7 @@ class CodegenCommandLoopTest {
      * @param arguments JSON 参数
      */
     private void toolJson(ModelEventListener listener, int turn, String name, String arguments) {
-        /** 完整助手工具消息。 */
+        // 完整助手工具消息。
         Message assistant = new Message("assistant-" + turn, Role.ASSISTANT, List.of(),
                 List.of(new ToolCall("call-" + turn, name, arguments)), List.of(), Map.of());
         listener.onEvent(new TurnCompleted(new com.dingbang.myworld.aiframework.api.ModelTurn(
@@ -241,7 +233,7 @@ class CodegenCommandLoopTest {
      * @param args 工具参数
      */
     private void toolTurn(ModelEventListener listener, int turn, String name, Map<String, String> args) {
-        /** 助手的工具调用消息。 */
+        // 助手的工具调用消息。
         Message assistant = new Message("assistant-" + turn, Role.ASSISTANT, List.of(),
                 List.of(new ToolCall("call-" + turn, name, json.valueToTree(args).toString())),
                 List.of(), Map.of());
@@ -257,7 +249,7 @@ class CodegenCommandLoopTest {
      * @param text 结果文本
      */
     private void textTurn(ModelEventListener listener, String text) {
-        /** 助手最终消息。 */
+        // 助手最终消息。
         Message assistant = new Message("assistant-final", Role.ASSISTANT,
                 List.of(new TextContentBlock(text)), List.of(), List.of(), Map.of());
         listener.onEvent(new TurnCompleted(new com.dingbang.myworld.aiframework.api.ModelTurn(

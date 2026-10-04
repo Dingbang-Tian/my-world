@@ -14,7 +14,9 @@ import java.util.concurrent.ConcurrentMap;
  * @since 2026/10/03
  */
 public final class InMemorySessionRepository implements SessionRepository {
-    /** 会话标识对应的会话。 */
+    /**
+     * 会话标识对应的会话。
+     */
     private final ConcurrentMap<String, MemorySession> sessions = new ConcurrentHashMap<>();
 
     /**

@@ -7,10 +7,12 @@ import lombok.Data;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 不依赖模型供应商的不可变对话消息。
@@ -60,7 +62,7 @@ public final class Message {
      * @param toolCalls 工具调用
      * @param toolResults 工具结果
      * @param providerMetadata 供应商协议元数据
-     * @throws IllegalArgumentException 当消息标识为空或角色与工具数据不匹配时
+     * @throws IllegalArgumentException 当消息标识为空、角色与工具数据不匹配或工具调用标识重复时
      * @throws NullPointerException 当必要字段或集合为 null 时
      */
     public Message(String messageId, Role role, List<ContentBlock> contentBlocks,
@@ -71,7 +73,17 @@ public final class Message {
             throw new IllegalArgumentException("消息标识不能为空");
         }
         Objects.requireNonNull(contentBlocks, "内容块列表不能为 null").forEach(Objects::requireNonNull);
-        Objects.requireNonNull(toolCalls, "工具调用列表不能为 null").forEach(Objects::requireNonNull);
+        /** 已校验的工具调用列表。 */
+        List<ToolCall> validatedToolCalls = Objects.requireNonNull(toolCalls, "工具调用列表不能为 null");
+        validatedToolCalls.forEach(Objects::requireNonNull);
+        /** 当前消息中已经出现的工具调用标识。 */
+        Set<String> callIds = new HashSet<>();
+        for (ToolCall toolCall : validatedToolCalls) {
+            if (!callIds.add(toolCall.getCallId())) {
+                throw new IllegalArgumentException("同一助手消息中的工具调用标识不能重复: "
+                        + toolCall.getCallId());
+            }
+        }
         Objects.requireNonNull(toolResults, "工具结果列表不能为 null").forEach(Objects::requireNonNull);
         Objects.requireNonNull(providerMetadata, "协议元数据不能为 null");
 
@@ -85,7 +97,7 @@ public final class Message {
         this.messageId = messageId;
         this.role = Objects.requireNonNull(role, "消息角色不能为 null");
         this.contentBlocks = Collections.unmodifiableList(new ArrayList<>(contentBlocks));
-        this.toolCalls = Collections.unmodifiableList(new ArrayList<>(toolCalls));
+        this.toolCalls = Collections.unmodifiableList(new ArrayList<>(validatedToolCalls));
         this.toolResults = Collections.unmodifiableList(new ArrayList<>(toolResults));
         this.providerMetadata = Collections.unmodifiableMap(new LinkedHashMap<>(providerMetadata));
     }

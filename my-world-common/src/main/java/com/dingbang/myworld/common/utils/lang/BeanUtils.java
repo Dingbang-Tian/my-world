@@ -48,6 +48,9 @@ public class BeanUtils extends BeanUtil {
             .addModule(new JavaTimeModule())
             .build();
 
+    /**
+     * 按类缓存的 Bean 属性描述。
+     */
     private static final Map<Class<?>, LambdaBeanDesc> BEAN_DESC_CACHE = new WeakConcurrentMap<>();
 
     /**

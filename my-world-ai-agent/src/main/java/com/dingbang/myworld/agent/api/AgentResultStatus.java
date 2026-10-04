@@ -1,12 +1,16 @@
 package com.dingbang.myworld.agent.api;
 
 /**
- * Agent 运行的终态种类。
+ * Agent 运行中的状态及其终态种类。
  *
  * @author Sebastian
  * @since 2026/10/02
  */
 public enum AgentResultStatus {
+    /**
+     * 运行正在执行，尚无最终结果。
+     */
+    RUNNING,
     /**
      * 正常完成。
      */

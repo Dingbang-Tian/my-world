@@ -1,5 +1,7 @@
 package com.dingbang.myworld.aiframework.api;
 
+import lombok.Getter;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -11,19 +13,15 @@ import java.util.Objects;
  * @since 2026/10/03
  */
 public final class CancellationToken {
-    /** 等待取消的资源清理回调。 */
-    private final List<Runnable> callbacks = new ArrayList<>();
-    /** 是否已经请求取消。 */
-    private volatile boolean cancelled;
-
     /**
-     * 返回取消状态。
-     *
-     * @return 已取消时为 true
+     * 等待取消的资源清理回调。
      */
-    public boolean isCancelled() {
-        return cancelled;
-    }
+    private final List<Runnable> callbacks = new ArrayList<>();
+    /**
+     * 是否已经请求取消。
+     */
+    @Getter
+    private volatile boolean cancelled;
 
     /**
      * 在取消后拒绝继续工作。
@@ -58,7 +56,7 @@ public final class CancellationToken {
      * 幂等取消并在锁外清理所有已登记的资源。
      */
     public void cancel() {
-        /** 本次唯一获得清理权的回调快照。 */
+        // 本次唯一获得清理权的回调快照。
         List<Runnable> pending;
         synchronized (this) {
             if (cancelled) {

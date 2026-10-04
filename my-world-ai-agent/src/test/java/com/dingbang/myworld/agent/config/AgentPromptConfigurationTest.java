@@ -71,4 +71,19 @@ class AgentPromptConfigurationTest {
                 .withPropertyValues("my-world.agent.prompts.system.location=file:/missing-s03-startup.md")
                 .run(context -> assertThat(context).hasFailed());
     }
+
+    /**
+     * 验证项目 YAML 可以使用完整模板标识覆盖代码生成系统提示词。
+     */
+    @Test
+    void bindsFullTemplateIdForCodegenPrompt() {
+        new ApplicationContextRunner()
+                .withUserConfiguration(AgentModuleConfiguration.class)
+                .withPropertyValues("my-world.agent.prompts.[codegen/system].inline=项目代码生成模板")
+                .run(context -> {
+                    assertThat(context).hasNotFailed();
+                    assertThat(context.getBean(PromptRepository.class).get("codegen/system").getContent())
+                            .isEqualTo("项目代码生成模板");
+                });
+    }
 }

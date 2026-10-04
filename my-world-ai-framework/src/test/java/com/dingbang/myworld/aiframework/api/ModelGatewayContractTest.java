@@ -14,6 +14,7 @@ import java.util.Arrays;
 import java.util.Collections;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * 验证单次模型事件的完整回合、工具调用和失败语义。
@@ -164,6 +165,22 @@ class ModelGatewayContractTest {
 
         assertThat(repeatedRecorder.getError()).isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("完整回合之后");
+    }
+
+    /**
+     * 验证创建助手工具消息时立即拒绝重复工具调用标识。
+     */
+    @Test
+    void rejectsDuplicateToolCallIdsWhenCreatingMessage() {
+        // 两个工具调用错误地复用了同一个调用标识。
+        ToolCall first = new ToolCall("call-1", "first", "{}");
+        ToolCall duplicate = new ToolCall("call-1", "second", "{}");
+
+        assertThatThrownBy(() -> new Message("assistant-duplicate", Role.ASSISTANT,
+                Collections.emptyList(), Arrays.asList(first, duplicate),
+                Collections.emptyList(), Collections.emptyMap()))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("工具调用标识不能重复");
     }
 
     /**

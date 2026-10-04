@@ -9,16 +9,18 @@ import com.dingbang.myworld.ai.adapter.SpringAiChatAdapter;
 import com.dingbang.myworld.ai.application.AiChatService;
 import com.dingbang.myworld.ai.config.SpringAiConfiguration;
 import com.dingbang.myworld.aiapp.config.AiApplicationConfiguration;
+import com.dingbang.myworld.aiapp.codegen.application.CodegenTaskService;
+import com.dingbang.myworld.web.ai.codegen.CodegenController;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
 import com.dingbang.myworld.aiframework.protocol.openai.OpenAiChatGateway;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.condition.EnabledIfEnvironmentVariable;
-import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.boot.WebApplicationType;
 import org.springframework.boot.builder.SpringApplicationBuilder;
-import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.ConfigurableApplicationContext;
-import org.springframework.context.annotation.Bean;
+
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -31,13 +33,36 @@ import static org.assertj.core.api.Assertions.assertThat;
 class ModuleAssemblySmokeTest {
 
     /**
+     * 验证显式启用的代码生成服务和 dev 控制器可由完整应用上下文装配。
+     *
+     * @param workspace 临时可信工作目录
+     */
+    @Test
+    void loadsCodegenEntry(@TempDir Path workspace) {
+        // 使用假模型启动的代码生成上下文。
+        ConfigurableApplicationContext context = new SpringApplicationBuilder(
+                MyWorldApplication.class, ModuleAssemblySmokeTestFakeModelConfiguration.class, ModuleAssemblySmokeTestFakeCodegenGatewayConfiguration.class)
+                .web(WebApplicationType.NONE)
+                .profiles("dev")
+                .properties("spring.config.name=s01-smoke-test",
+                        "my-world.codegen.enabled=true",
+                        "my-world.codegen.model-id=scripted",
+                        "my-world.codegen.workspace=" + workspace)
+                .run();
+        try (context) {
+            assertThat(context.getBean(CodegenTaskService.class)).isNotNull();
+            assertThat(context.getBean(CodegenController.class)).isNotNull();
+        }
+    }
+
+    /**
      * 验证模块配置链、普通对话服务和显式启用的 Chat 网关均已装配，且无需调用远程模型。
      */
     @Test
     void loadsModuleChainAndExistingChatService() {
         // 使用测试配置与假模型启动的应用上下文。
         ConfigurableApplicationContext context = new SpringApplicationBuilder(
-                MyWorldApplication.class, FakeModelConfiguration.class)
+                MyWorldApplication.class, ModuleAssemblySmokeTestFakeModelConfiguration.class)
                 .web(WebApplicationType.NONE)
                 .profiles("test")
                 .properties("spring.config.name=s01-smoke",
@@ -62,9 +87,9 @@ class ModuleAssemblySmokeTest {
     @Test
     @EnabledIfEnvironmentVariable(named = "MYWORLD_TEST_MYSQL_URL", matches = ".+")
     void loadsMysqlAgentStorageWithoutDefaultDatasource() {
-        /** 使用专用 MySQL 测试库启动的应用上下文。 */
+        // 使用专用 MySQL 测试库启动的应用上下文。
         ConfigurableApplicationContext context = new SpringApplicationBuilder(
-                MyWorldApplication.class, FakeModelConfiguration.class)
+                MyWorldApplication.class, ModuleAssemblySmokeTestFakeModelConfiguration.class)
                 .web(WebApplicationType.NONE)
                 .profiles("test")
                 .properties("spring.config.name=s01-smoke",
@@ -81,25 +106,5 @@ class ModuleAssemblySmokeTest {
         }
     }
 
-    /**
-     * 为装配测试提供不会请求网络的假模型客户端构建器。
-     *
-     * @author Sebastian
-     * @since 2026/10/01
-     */
-    @TestConfiguration(proxyBeanMethods = false)
-    static class FakeModelConfiguration {
 
-        /**
-         * 创建由假模型支撑的 ChatClient 构建器。
-         *
-         * @return 不会自行发起网络请求的构建器
-         */
-        @Bean
-        ChatClient.Builder testChatClientBuilder() {
-            return ChatClient.builder(prompt -> {
-                throw new AssertionError("S01 装配测试不应调用模型");
-            });
-        }
-    }
 }

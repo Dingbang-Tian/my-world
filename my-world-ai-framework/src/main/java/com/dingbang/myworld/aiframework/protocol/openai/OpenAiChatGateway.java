@@ -1,20 +1,16 @@
 package com.dingbang.myworld.aiframework.protocol.openai;
 
-import com.dingbang.myworld.aiframework.api.ModelFinishReason;
+import com.dingbang.myworld.aiframework.model.content.MediaKind;
+
 import com.dingbang.myworld.aiframework.api.ModelExecutionContext;
 import com.dingbang.myworld.aiframework.api.ModelGatewayException;
 import com.dingbang.myworld.aiframework.api.ExecutionControlException;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
 import com.dingbang.myworld.aiframework.api.ModelOptions;
 import com.dingbang.myworld.aiframework.api.ModelRequest;
-import com.dingbang.myworld.aiframework.api.ModelTokenUsage;
 import com.dingbang.myworld.aiframework.api.ModelToolDefinition;
-import com.dingbang.myworld.aiframework.api.ModelTurn;
 import com.dingbang.myworld.aiframework.api.event.ModelEventListener;
-import com.dingbang.myworld.aiframework.api.event.ReasoningDelta;
-import com.dingbang.myworld.aiframework.api.event.TextDelta;
 import com.dingbang.myworld.aiframework.api.event.TurnCompleted;
-import com.dingbang.myworld.aiframework.api.event.UsageReported;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
 import com.dingbang.myworld.aiframework.model.ToolCall;
@@ -37,7 +33,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
@@ -45,8 +40,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.TreeMap;
-import java.util.UUID;
 
 /**
  * 将协议中立请求转换为单次 OpenAI Chat 流式 HTTP 调用。
@@ -56,13 +49,19 @@ import java.util.UUID;
  */
 public final class OpenAiChatGateway implements ModelGateway {
 
-    /** 不可变的模型实例注册表。 */
+    /**
+     * 不可变的模型实例注册表。
+     */
     private final Map<String, OpenAiChatModelConfig> models;
 
-    /** 发送单次 HTTP 请求的客户端。 */
+    /**
+     * 发送单次 HTTP 请求的客户端。
+     */
     private final HttpClient client;
 
-    /** JSON 序列化与解析器。 */
+    /**
+     * JSON 序列化与解析器。
+     */
     private final ObjectMapper mapper;
 
     /**
@@ -83,9 +82,9 @@ public final class OpenAiChatGateway implements ModelGateway {
      */
     public OpenAiChatGateway(Collection<OpenAiChatModelConfig> configs, HttpClient client, ObjectMapper mapper) {
         Objects.requireNonNull(configs, "模型配置不能为 null");
-        /** 按 modelId 索引的配置。 */
+        // 按 modelId 索引的配置。
         Map<String, OpenAiChatModelConfig> indexed = new LinkedHashMap<>();
-        /** 当前待注册的模型实例。 */
+        // 当前待注册的模型实例。
         for (OpenAiChatModelConfig config : configs) {
             Objects.requireNonNull(config, "模型配置项不能为 null");
             if (indexed.putIfAbsent(config.getModelId(), config) != null) {
@@ -107,29 +106,29 @@ public final class OpenAiChatGateway implements ModelGateway {
     public void generate(ModelRequest request, ModelEventListener listener) {
         Objects.requireNonNull(request, "模型请求不能为 null");
         Objects.requireNonNull(listener, "模型监听器不能为 null");
-        /** 本次调用的取消、截止时间与输出保护。 */
+        // 本次调用的取消、截止时间与输出保护。
         ModelExecutionContext context = request.getExecutionContext();
         try {
             context.checkActive();
-            /** 由本地 modelId 选中的固定模型实例。 */
+            // 由本地 modelId 选中的固定模型实例。
             OpenAiChatModelConfig config = models.get(request.getModelId());
             if (config == null) {
                 throw new ModelGatewayException("CONFIGURATION_ERROR", "未知模型标识: " + request.getModelId());
             }
-            /** 构造已校验的完整请求体。 */
+            // 构造已校验的完整请求体。
             String body = mapper.writeValueAsString(buildBody(request, config));
-            /** 本轮独立的 HTTP 请求。 */
+            // 本轮独立的 HTTP 请求。
             HttpRequest httpRequest = HttpRequest.newBuilder(config.getEndpoint())
                     .timeout(requestTimeout(context))
                     .header("Authorization", "Bearer " + config.getApiKey())
                     .header("Content-Type", "application/json")
                     .header("Accept", "text/event-stream")
                     .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
-            /** 按流读取的 HTTP 响应。 */
+            // 按流读取的 HTTP 响应。
             HttpResponse<InputStream> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
-            /** 由当前 HTTP 响应持有的流。 */
+            // 由当前 HTTP 响应持有的流。
             try (InputStream stream = response.body()) {
-                /** 取消时关闭当前网络流的注销动作。 */
+                // 取消时关闭当前网络流的注销动作。
                 Runnable unregister = context.getCancellation().onCancel(() -> {
                     try {
                         stream.close();
@@ -143,8 +142,8 @@ public final class OpenAiChatGateway implements ModelGateway {
                         throw new OpenAiChatProtocolException("模型 HTTP 请求失败，状态码: " + response.statusCode(),
                                 response.statusCode());
                     }
-                    /** 当前请求私有的分片聚合状态。 */
-                    StreamAccumulator accumulator = new StreamAccumulator(listener, context);
+                    // 当前请求私有的分片聚合状态。
+                    OpenAiStreamAccumulator accumulator = new OpenAiStreamAccumulator(mapper, listener, context);
                     readEvents(stream, accumulator, context);
                     context.checkActive();
                     listener.onEvent(new TurnCompleted(accumulator.complete()));
@@ -169,30 +168,30 @@ public final class OpenAiChatGateway implements ModelGateway {
      * @return JSON 请求节点
      */
     private ObjectNode buildBody(ModelRequest request, OpenAiChatModelConfig config) throws IOException {
-        /** 根请求节点。 */
+        // 根请求节点。
         ObjectNode body = mapper.createObjectNode();
         body.put("model", config.getWireModel());
         body.put("stream", true);
         body.putObject("stream_options").put("include_usage", true);
-        /** 有序消息数组。 */
+        // 有序消息数组。
         ArrayNode messages = body.putArray("messages");
-        /** 当前待编码的对话消息。 */
+        // 当前待编码的对话消息。
         for (Message message : request.getMessages()) {
             encodeMessage(messages, message, config);
         }
         if (!request.getTools().isEmpty()) {
-            /** 模型可见的工具列表。 */
+            // 模型可见的工具列表。
             ArrayNode tools = body.putArray("tools");
-            /** 当前授权工具说明。 */
+            // 当前授权工具说明。
             for (ModelToolDefinition definition : request.getTools()) {
-                /** 工具说明节点。 */
+                // 工具说明节点。
                 ObjectNode tool = tools.addObject();
                 tool.put("type", "function");
-                /** 工具函数节点。 */
+                // 工具函数节点。
                 ObjectNode function = tool.putObject("function");
                 function.put("name", definition.getName());
                 function.put("description", definition.getDescription());
-                /** 已在 Agent 端生成的参数 Schema。 */
+                // 已在 Agent 端生成的参数 Schema。
                 JsonNode schema = mapper.readTree(definition.getParameterSchemaJson());
                 if (!schema.isObject()) {
                     throw new ModelGatewayException("INVALID_REQUEST", "工具参数 Schema 必须是 JSON 对象");
@@ -200,7 +199,7 @@ public final class OpenAiChatGateway implements ModelGateway {
                 function.set("parameters", schema);
             }
         }
-        /** 覆盖本轮调用的有效生成选项。 */
+        // 覆盖本轮调用的有效生成选项。
         ModelOptions options = request.getOptions().overlay(config.getDefaultOptions());
         if (options.getTemperature() != null) {
             body.put("temperature", options.getTemperature());
@@ -232,13 +231,13 @@ public final class OpenAiChatGateway implements ModelGateway {
             if (!message.getContentBlocks().isEmpty() || message.getToolResults().size() != 1) {
                 throw new ModelGatewayException("INVALID_REQUEST", "Chat 工具消息必须只包含一个工具结果");
             }
-            /** 与调用标识配对的工具结果。 */
+            // 与调用标识配对的工具结果。
             ToolResult result = message.getToolResults().get(0);
-            /** 协议工具结果消息。 */
+            // 协议工具结果消息。
             ObjectNode tool = target.addObject();
             tool.put("role", "tool");
             tool.put("tool_call_id", result.getCallId());
-            /** 将错误状态也传回模型，供其修正调用。 */
+            // 将错误状态也传回模型，供其修正调用。
             ObjectNode content = mapper.createObjectNode();
             content.put("status", result.getStatus().name());
             content.put("content", result.getContent());
@@ -252,26 +251,26 @@ public final class OpenAiChatGateway implements ModelGateway {
         if (!message.getToolResults().isEmpty()) {
             throw new ModelGatewayException("INVALID_REQUEST", "非工具消息不能包含工具结果");
         }
-        /** 协议对话消息。 */
+        // 协议对话消息。
         ObjectNode node = target.addObject();
         node.put("role", message.getRole().name().toLowerCase(java.util.Locale.ROOT));
-        /** 合并纯文本内容块。 */
+        // 合并纯文本内容块。
         StringBuilder content = new StringBuilder();
-        /** 当前消息是否包含图片。 */
+        // 当前消息是否包含图片。
         boolean hasImage = message.getContentBlocks().stream().anyMatch(MediaContentBlock.class::isInstance);
-        /** 混合图片消息的有序内容数组。 */
+        // 混合图片消息的有序内容数组。
         ArrayNode contentParts = hasImage ? node.putArray("content") : null;
-        /** 当前消息内容块。 */
+        // 当前消息内容块。
         for (ContentBlock block : message.getContentBlocks()) {
             if (block instanceof TextContentBlock text) {
                 content.append(text.getText());
                 if (hasImage) contentParts.addObject().put("type", "text").put("text", text.getText());
             } else if (block instanceof MediaContentBlock media && hasImage
                     && config.isImageEnabled() && message.getRole() == Role.USER
-                    && media.getKind() == MediaContentBlock.Kind.IMAGE
+                    && media.getKind() == MediaKind.IMAGE
                     && List.of("image/jpeg", "image/png", "image/gif", "image/webp")
                     .contains(media.getMimeType().toLowerCase())) {
-                /** 图片的 HTTPS 或 data URI。 */
+                // 图片的 HTTPS 或 data URI。
                 String url = media.getUrl() == null ? "data:" + media.getMimeType() + ";base64,"
                         + Base64.getEncoder().encodeToString(media.getBytes()) : media.getUrl().toString();
                 contentParts.addObject().put("type", "image_url").putObject("image_url").put("url", url);
@@ -287,15 +286,15 @@ public final class OpenAiChatGateway implements ModelGateway {
             node.putNull("content");
         }
         if (!message.getToolCalls().isEmpty()) {
-            /** 助手历史中的工具调用。 */
+            // 助手历史中的工具调用。
             ArrayNode calls = node.putArray("tool_calls");
-            /** 当前助手工具调用。 */
+            // 当前助手工具调用。
             for (ToolCall call : message.getToolCalls()) {
-                /** 单条调用节点。 */
+                // 单条调用节点。
                 ObjectNode callNode = calls.addObject();
                 callNode.put("id", call.getCallId());
                 callNode.put("type", "function");
-                /** 调用的函数与原始参数 JSON。 */
+                // 调用的函数与原始参数 JSON。
                 ObjectNode function = callNode.putObject("function");
                 function.put("name", call.getName());
                 function.put("arguments", call.getArgumentsJson());
@@ -313,15 +312,15 @@ public final class OpenAiChatGateway implements ModelGateway {
      * @param stream HTTP 响应流
      * @param accumulator 当前请求的分片状态
      */
-    private void readEvents(InputStream stream, StreamAccumulator accumulator,
+    private void readEvents(InputStream stream, OpenAiStreamAccumulator accumulator,
                             ModelExecutionContext context) throws IOException {
-        /** UTF-8 SSE 行读取器。 */
+        // UTF-8 SSE 行读取器。
         BufferedReader reader = new BufferedReader(new InputStreamReader(stream, StandardCharsets.UTF_8));
-        /** 当前事件的 data 行。 */
+        // 当前事件的 data 行。
         StringBuilder data = new StringBuilder();
-        /** 用于限制心跳和 JSON 协议开销的总接收字符数。 */
+        // 用于限制心跳和 JSON 协议开销的总接收字符数。
         long wireCharacters = 0;
-        /** 当前读取的有界行。 */
+        // 当前读取的有界行。
         String line;
         while ((line = readBoundedLine(reader, context)) != null) {
             context.checkActive();
@@ -361,11 +360,11 @@ public final class OpenAiChatGateway implements ModelGateway {
      * @throws IOException 读取失败时
      */
     private String readBoundedLine(BufferedReader reader, ModelExecutionContext context) throws IOException {
-        /** 当前有界行内容。 */
+        // 当前有界行内容。
         StringBuilder line = new StringBuilder();
-        /** 单行最大允许字符数。 */
+        // 单行最大允许字符数。
         long maximum = Math.max(65536L, (long) context.getMaxOutputCharacters() * 8L);
-        /** 下一个字符。 */
+        // 下一个字符。
         int next;
         while ((next = reader.read()) != -1) {
             if ((line.length() & 1023) == 0) {
@@ -410,7 +409,7 @@ public final class OpenAiChatGateway implements ModelGateway {
         if (context.getDeadline() == null) {
             return Duration.ofSeconds(90);
         }
-        /** 全局剩余时间。 */
+        // 全局剩余时间。
         Duration remaining = Duration.between(Instant.now(), context.getDeadline());
         if (remaining.isNegative() || remaining.isZero()) {
             throw new ExecutionControlException("TIMEOUT", "模型调用超过全局截止时间");
@@ -418,246 +417,6 @@ public final class OpenAiChatGateway implements ModelGateway {
         return remaining.compareTo(Duration.ofSeconds(90)) < 0 ? remaining : Duration.ofSeconds(90);
     }
 
-    /**
-     * 聚合一次请求内的内容、推理、工具调用及最终用量。
-     */
-    private final class StreamAccumulator {
 
-        /** 接收增量事件的监听器。 */
-        private final ModelEventListener listener;
 
-        /** 当前调用的执行保护。 */
-        private final ModelExecutionContext context;
-
-        /** 当前响应的模型内容字符数。 */
-        private long contentCharacters;
-
-        /** 完整回答文本。 */
-        private final StringBuilder content = new StringBuilder();
-
-        /** 完整推理文本。 */
-        private final StringBuilder reasoning = new StringBuilder();
-
-        /** 按流内 index 排序的工具分片。 */
-        private final Map<Integer, ToolParts> tools = new TreeMap<>();
-
-        /** 服务端完成标识。 */
-        private String completionId;
-
-        /** 标准化结束原因。 */
-        private ModelFinishReason finishReason;
-
-        /** 最终用量。 */
-        private ModelTokenUsage usage;
-
-        /** 是否收到 SSE DONE 标记。 */
-        private boolean done;
-
-        /**
-         * 创建当前请求的聚合器。
-         *
-         * @param listener 接收增量的监听器
-         * @param context 当前调用预算
-         */
-        private StreamAccumulator(ModelEventListener listener, ModelExecutionContext context) {
-            this.listener = listener;
-            this.context = context;
-        }
-
-        /**
-         * 解析一个 SSE data 事件。
-         *
-         * @param data 事件数据
-         */
-        private void accept(String data) throws IOException {
-            context.checkActive();
-            if ("[DONE]".equals(data)) {
-                done = true;
-                return;
-            }
-            /** 本次事件 JSON。 */
-            JsonNode chunk;
-            try {
-                chunk = mapper.readTree(data);
-            } catch (IOException exception) {
-                throw new OpenAiChatProtocolException("模型流 JSON 无效", 0);
-            }
-            if (chunk == null || !chunk.isObject()) {
-                throw new OpenAiChatProtocolException("模型流事件必须是 JSON 对象", 0);
-            }
-            if (chunk.hasNonNull("error")) {
-                throw new OpenAiChatProtocolException("模型流报告错误", 0);
-            }
-            if (chunk.hasNonNull("id")) {
-                completionId = chunk.get("id").asText();
-            }
-            /** 本事件报告的最终用量。 */
-            JsonNode usageNode = chunk.path("usage");
-            if (usageNode.isObject()) {
-                usage = new ModelTokenUsage(requiredLong(usageNode, "prompt_tokens"),
-                        requiredLong(usageNode, "completion_tokens"), requiredLong(usageNode, "total_tokens"),
-                        usageNode.path("completion_tokens_details").path("reasoning_tokens").isNumber()
-                                ? usageNode.path("completion_tokens_details").path("reasoning_tokens").longValue()
-                                : null);
-                listener.onEvent(new UsageReported(usage));
-            }
-            /** 服务端提供的候选结果。 */
-            JsonNode choices = chunk.path("choices");
-            if (!choices.isArray()) {
-                throw new OpenAiChatProtocolException("模型流缺少 choices 数组", 0);
-            }
-            /** 当前候选结果，协议层只接受 index 为零。 */
-            for (JsonNode choice : choices) {
-                if (choice.path("index").asInt(-1) != 0) {
-                    throw new OpenAiChatProtocolException("当前只支持单个候选结果", 0);
-                }
-                /** 当前候选的增量内容。 */
-                JsonNode delta = choice.path("delta");
-                if (delta.isObject()) {
-                    if (delta.path("content").isTextual()) {
-                        /** 本次回答文本增量。 */
-                        String text = delta.get("content").asText();
-                        count(text);
-                        content.append(text);
-                        if (!text.isEmpty()) {
-                            listener.onEvent(new TextDelta(text));
-                        }
-                    }
-                    if (delta.path("reasoning_content").isTextual()) {
-                        /** 本次推理文本增量。 */
-                        String text = delta.get("reasoning_content").asText();
-                        count(text);
-                        reasoning.append(text);
-                        if (!text.isEmpty()) {
-                            listener.onEvent(new ReasoningDelta(text));
-                        }
-                    }
-                    if (delta.path("tool_calls").isArray()) {
-                        /** 当前工具调用分片。 */
-                        for (JsonNode call : delta.path("tool_calls")) {
-                            /** 本次工具分片对应的流内索引。 */
-                            int index = call.path("index").asInt(-1);
-                            if (index < 0) {
-                                throw new OpenAiChatProtocolException("工具分片缺少有效 index", 0);
-                            }
-                            /** 当前索引的工具分片。 */
-                            ToolParts parts = tools.computeIfAbsent(index, ignored -> new ToolParts());
-                            if (call.path("id").isTextual()) {
-                                count(call.get("id").asText());
-                                parts.id.append(call.get("id").asText());
-                            }
-                            if (call.path("type").isTextual() && !"function".equals(call.get("type").asText())) {
-                                throw new OpenAiChatProtocolException("不支持的工具调用类型", 0);
-                            }
-                            /** 函数名称和参数片段。 */
-                            JsonNode function = call.path("function");
-                            if (function.path("name").isTextual()) {
-                                count(function.get("name").asText());
-                                parts.name.append(function.get("name").asText());
-                            }
-                            if (function.path("arguments").isTextual()) {
-                                count(function.get("arguments").asText());
-                                parts.arguments.append(function.get("arguments").asText());
-                            }
-                        }
-                    }
-                }
-                if (choice.path("finish_reason").isTextual()) {
-                    if (finishReason != null) {
-                        throw new OpenAiChatProtocolException("重复的模型结束原因", 0);
-                    }
-                    finishReason = normalizeFinishReason(choice.get("finish_reason").asText());
-                }
-            }
-        }
-
-        /**
-         * 累加模型内容并在追加到缓冲区前检查上限。
-         *
-         * @param value 新的模型内容片段
-         */
-        private void count(String value) {
-            contentCharacters += value.length();
-            if (contentCharacters > context.getMaxOutputCharacters()) {
-                throw new ExecutionControlException("LIMIT_EXCEEDED", "模型输出达到字符上限");
-            }
-        }
-
-        /**
-         * 在 DONE 后创建唯一完整模型回合。
-         *
-         * @return 完整助手回合
-         */
-        private ModelTurn complete() {
-            if (!done || finishReason == null) {
-                throw new OpenAiChatProtocolException("模型流缺少 DONE 或结束原因", 0);
-            }
-            /** 按索引组装的完整调用列表。 */
-            List<ToolCall> calls = new ArrayList<>();
-            /** 当前工具索引聚合后的完整片段。 */
-            for (ToolParts parts : tools.values()) {
-                if (parts.id.isEmpty() || parts.name.isEmpty() || parts.arguments.isEmpty()) {
-                    throw new OpenAiChatProtocolException("模型工具调用分片不完整", 0);
-                }
-                calls.add(new ToolCall(parts.id.toString(), parts.name.toString(), parts.arguments.toString()));
-            }
-            /** 回传时保留协议需要的推理历史及完成标识。 */
-            Map<String, String> metadata = new LinkedHashMap<>();
-            if (!reasoning.isEmpty()) {
-                metadata.put("reasoning_content", reasoning.toString());
-            }
-            if (completionId != null) {
-                metadata.put("completion_id", completionId);
-            }
-            /** 当前助手的非空文本块。 */
-            List<ContentBlock> blocks = content.isEmpty() ? Collections.emptyList()
-                    : Collections.singletonList(new TextContentBlock(content.toString()));
-            /** 当前唯一的完整助手消息。 */
-            Message assistant = new Message(completionId == null ? UUID.randomUUID().toString() : completionId,
-                    Role.ASSISTANT, blocks, calls, Collections.emptyList(), metadata);
-            return new ModelTurn(assistant, finishReason, usage);
-        }
-    }
-
-    /**
-     * 保存同一个工具 index 的跨事件片段。
-     */
-    private static final class ToolParts {
-        /** 供应商调用标识的片段。 */
-        private final StringBuilder id = new StringBuilder();
-        /** 工具名称的片段。 */
-        private final StringBuilder name = new StringBuilder();
-        /** JSON 参数的片段。 */
-        private final StringBuilder arguments = new StringBuilder();
-    }
-
-    /**
-     * 从用量对象读取必需的非负整数。
-     *
-     * @param node 用量 JSON 对象
-     * @param field 字段名称
-     * @return token 数
-     */
-    private long requiredLong(JsonNode node, String field) {
-        if (!node.path(field).canConvertToLong()) {
-            throw new OpenAiChatProtocolException("模型用量缺少整数字段: " + field, 0);
-        }
-        return node.get(field).longValue();
-    }
-
-    /**
-     * 把协议结束原因转为中立枚举，未知值交给上层决定失败策略。
-     *
-     * @param reason 协议结束原因
-     * @return 标准化结束原因
-     */
-    private ModelFinishReason normalizeFinishReason(String reason) {
-        return switch (reason) {
-            case "stop" -> ModelFinishReason.STOP;
-            case "tool_calls" -> ModelFinishReason.TOOL_CALLS;
-            case "length" -> ModelFinishReason.LENGTH;
-            case "content_filter" -> ModelFinishReason.REFUSAL;
-            default -> ModelFinishReason.UNKNOWN;
-        };
-    }
 }

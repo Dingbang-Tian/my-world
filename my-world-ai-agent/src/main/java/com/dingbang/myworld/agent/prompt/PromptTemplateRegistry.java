@@ -66,12 +66,16 @@ public final class PromptTemplateRegistry implements PromptRepository {
         Map<String, PromptTemplateSnapshot> loaded = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : DEFAULT_LOCATIONS.entrySet()) {
             String templateId = entry.getKey();
+            /** 默认模板资源是否存在。 */
+            boolean defaultExists = resourceLoader.getResource(entry.getValue()).exists();
             if (templateId.startsWith("codegen/")
-                    && !resourceLoader.getResource(entry.getValue()).exists()
-                    && !applicationOverrides.containsKey(templateId)) {
+                    && !defaultExists
+                    && !applicationOverrides.containsKey(templateId)
+                    && !projectOverrides.containsKey(templateId)) {
                 continue;
             }
-            String content = read(resourceLoader, entry.getValue());
+            /** 当前模板的初始内容；默认资源缺失时由覆盖配置提供。 */
+            String content = defaultExists ? read(resourceLoader, entry.getValue()) : "";
             Boolean enabled = Boolean.TRUE;
             PromptTemplateSpec application = applicationOverrides.get(templateId);
             PromptTemplateSpec project = projectOverrides.get(templateId);

@@ -17,11 +17,17 @@ import java.util.Objects;
  */
 @Data
 public final class SessionSnapshot {
-    /** 历史版本。 */
+    /**
+     * 历史版本。
+     */
     private final long version;
-    /** 已完成交换的消息。 */
+    /**
+     * 已完成交换的消息。
+     */
     private final List<Message> messages;
-    /** 已提交的摘要，尚无摘要时为 null。 */
+    /**
+     * 已提交的摘要，尚无摘要时为 null。
+     */
     private final MemorySummary summary;
 
     /**

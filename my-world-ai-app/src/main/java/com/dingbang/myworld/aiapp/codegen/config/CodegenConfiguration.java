@@ -6,6 +6,7 @@ import com.dingbang.myworld.agent.persistence.RunJournal;
 import com.dingbang.myworld.agent.session.SessionRepository;
 import com.dingbang.myworld.aiapp.codegen.api.CodegenService;
 import com.dingbang.myworld.aiapp.codegen.application.CodegenFactory;
+import com.dingbang.myworld.aiapp.codegen.application.CodegenTaskService;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -23,6 +24,19 @@ import java.nio.file.Path;
 @Configuration(proxyBeanMethods = false)
 @EnableConfigurationProperties(CodegenProperties.class)
 public class CodegenConfiguration {
+    /**
+     * 为开发入口提供幂等运行和状态查询服务。
+     *
+     * @param codegen 已装配的代码生成服务
+     * @param journal 可选持久化日志
+     * @return 任务协调服务
+     */
+    @Bean
+    @ConditionalOnProperty(prefix = "my-world.codegen", name = "enabled", havingValue = "true")
+    public CodegenTaskService codegenTaskService(CodegenService codegen, RunJournal journal) {
+        return new CodegenTaskService(codegen, journal);
+    }
+
     /**
      * 校验可信配置并创建代码生成服务。
      *
@@ -42,7 +56,7 @@ public class CodegenConfiguration {
                 || properties.getWorkspace() == null || properties.getWorkspace().isBlank()) {
             throw new IllegalArgumentException("启用 codegen 时必须配置 model-id 和 workspace");
         }
-        /** 配置提供的工作目录。 */
+        // 配置提供的工作目录。
         Path workspace = Path.of(properties.getWorkspace());
         if (!workspace.isAbsolute()) {
             throw new IllegalArgumentException("codegen workspace 必须是绝对路径");

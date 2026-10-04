@@ -6,7 +6,6 @@ import org.apache.commons.lang3.time.DateUtils;
 import java.text.SimpleDateFormat;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Date;
 import java.util.TimeZone;
@@ -40,6 +39,9 @@ public class GlobalDateFormatUtils {
      * LOCAL_DATE_TIME
      */
     public final static String LOCAL_DATE_TIME = "yyyy-MM-dd HH:mm:ss";
+    /**
+     * ISO 日期时间格式文本。
+     */
     public final static String ISO_DATE_TIME = "yyyy-MM-dd'T'HH:mm:ss.SSSXXX";
 
     /**

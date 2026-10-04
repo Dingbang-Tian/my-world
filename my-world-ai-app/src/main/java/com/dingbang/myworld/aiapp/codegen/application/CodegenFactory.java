@@ -154,15 +154,15 @@ public final class CodegenFactory {
                                  List<String> environmentAllowlist, boolean planEnabled,
                                  boolean subAgentEnabled, ContextPolicy contextPolicy,
                                  SessionRepository sessions, RunJournal journal) {
-        /** 固定工作目录的路径策略。 */
+        // 固定工作目录的路径策略。
         WorkspacePolicy policy = new WorkspacePolicy(workspace);
-        /** 工作目录内的文件工具。 */
+        // 工作目录内的文件工具。
         FileTools fileTools = new FileTools(policy, journal);
-        /** 完整文件工具集合。 */
+        // 完整文件工具集合。
         List<Tool<?>> all = fileTools.all();
-        /** 只读或含写权限的工具集合。 */
+        // 只读或含写权限的工具集合。
         List<Tool<?>> selected = new ArrayList<>(writeEnabled ? all : all.subList(0, 5));
-        /** 当前应用独占的命令工具。 */
+        // 当前应用独占的命令工具。
         ExecuteCommandTool commandTool = null;
         if (commandEnabled) {
             commandTool = new ExecuteCommandTool(policy, environmentAllowlist);
@@ -174,15 +174,15 @@ public final class CodegenFactory {
         if (subAgentEnabled) {
             selected.add(new CreateSubAgentTool());
         }
-        /** 文件工具的授权名称。 */
+        // 文件工具的授权名称。
         List<String> fileNames = (writeEnabled ? all : all.subList(0, 5)).stream()
                 .map(tool -> tool.descriptor().getName()).toList();
-        /** 根据文件权限拼接的技能说明。 */
+        // 根据文件权限拼接的技能说明。
         String fileInstructions = prompts.get("codegen/skills/files").getContent();
         if (writeEnabled) {
             fileInstructions += "\n" + prompts.get("codegen/skills/write").getContent();
         }
-        /** 本应用实际授权的技能列表。 */
+        // 本应用实际授权的技能列表。
         List<AgentSkill> skills = new ArrayList<>();
         skills.add(new AgentSkill("codegen/files", fileInstructions, fileNames));
         if (commandEnabled) {
@@ -199,13 +199,13 @@ public final class CodegenFactory {
                     + "为代码审查只传必要上下文，并在 toolIds 中明确列出已授权的只读文件工具；"
                     + "子 Agent 不自动继承父历史或全部工具。", List.of("create_sub_agent")));
         }
-        /** 当前定义使用的技能标识。 */
+        // 当前定义使用的技能标识。
         List<String> skillIds = skills.stream().map(AgentSkill::getSkillId).toList();
-        /** 只属于代码生成应用的 Agent 定义。 */
+        // 只属于代码生成应用的 Agent 定义。
         AgentDefinition definition = new AgentDefinition(CodegenService.APP_ID, CodegenService.AGENT_ID,
                 "代码生成助手", "分析和修改指定工作目录中的代码", modelId, "codegen/system",
                 List.of(), skillIds, AgentLimits.defaults(planEnabled || subAgentEnabled ? 24 : 8), contextPolicy);
-        /** 运行与工具执行服务。 */
+        // 运行与工具执行服务。
         DefaultAgentService agent = new DefaultAgentService(gateway, prompts, List.of(definition),
                 new ToolRegistry(selected), skills, ForkJoinPool.commonPool(), sessions, journal);
         return new CodegenService(agent, fileTools, commandTool, journal);

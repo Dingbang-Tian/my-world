@@ -12,19 +12,33 @@ import java.util.Objects;
  */
 @Data
 public final class AgentLimits {
-    /** 包含最终回答在内的最大模型回合数。 */
+    /**
+     * 包含最终回答在内的最大模型回合数。
+     */
     private final int maxModelTurns;
-    /** 最多尝试的工具调用数，参数失败也计入。 */
+    /**
+     * 最多尝试的工具调用数，参数失败也计入。
+     */
     private final int maxToolCalls;
-    /** 整次运行的输出字符上限，按 UTF-16 计数，包含模型与工具输出。 */
+    /**
+     * 整次运行的输出字符上限，按 UTF-16 计数，包含模型与工具输出。
+     */
     private final int maxOutputCharacters;
-    /** 历史回放及单个消费者待处理队列的事件容量。 */
+    /**
+     * 历史回放及单个消费者待处理队列的事件容量。
+     */
     private final int eventBufferCapacity;
-    /** 从 execute 开始计算的全局运行时限。 */
+    /**
+     * 从 execute 开始计算的全局运行时限。
+     */
     private final Duration timeout;
-    /** 单个计划允许的最大步骤数。 */
+    /**
+     * 单个计划允许的最大步骤数。
+     */
     private final int maxPlanSteps;
-    /** 子 Agent 的最大嵌套层数，根运行为零层。 */
+    /**
+     * 子 Agent 的最大嵌套层数，根运行为零层。
+     */
     private final int maxSubAgentDepth;
 
     /**

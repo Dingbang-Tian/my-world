@@ -31,9 +31,9 @@ public class SpringAiConfiguration {
         // TODO: 补充正式的系统提示词和默认请求选项。
         // 配置后的 ChatClient 构建器。
         ChatClient.Builder configuredBuilder = builder;
-        if (properties.defaultSystemPrompt() != null
-                && !properties.defaultSystemPrompt().isBlank()) {
-            configuredBuilder = configuredBuilder.defaultSystem(properties.defaultSystemPrompt());
+        if (properties.getDefaultSystemPrompt() != null
+                && !properties.getDefaultSystemPrompt().isBlank()) {
+            configuredBuilder = configuredBuilder.defaultSystem(properties.getDefaultSystemPrompt());
         }
         return configuredBuilder.build();
     }

@@ -147,30 +147,4 @@ public class AssertBiz {
         return () -> !ObjectUtils.isEmpty(obj);
     }
 
-    /**
-     * 业务断言检查接口。
-     *
-     * @author Sebastian
-     * @since 2026/09/25
-     */
-    public interface AssertThrow {
-
-        /**
-         * 校验
-         * @return
-         */
-        boolean check();
-
-        /**
-         * 校验失败时抛出异常
-         * @param errorEnum
-         * @param params
-         */
-        default void elseThrow(ErrorCode errorEnum, Object... params) {
-            if (!check()) {
-                throwNormalException(errorEnum, params);
-            }
-        }
-
-    }
 }

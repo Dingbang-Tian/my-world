@@ -3,12 +3,10 @@ package com.dingbang.myworld.agent.prompt;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
+import com.dingbang.myworld.common.utils.lang.HashUtils;
 import com.dingbang.myworld.common.utils.lang.StringUtils;
 import lombok.Data;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -64,7 +62,7 @@ public final class PromptTemplateSnapshot {
         }
         this.templateId = templateId;
         this.content = content;
-        this.contentHash = sha256(content);
+        this.contentHash = HashUtils.sha256(content);
 
         // 先移除合法占位符，再拒绝剩余的表达式边界。
         Matcher matcher = VARIABLE.matcher(content);
@@ -72,6 +70,7 @@ public final class PromptTemplateSnapshot {
         while (matcher.find()) {
             variables.add(matcher.group(1));
         }
+        // 移除合法占位符后剩余的模板文本。
         String remainder = matcher.replaceAll("");
         if (remainder.contains("{{") || remainder.contains("}}")) {
             throw new IllegalArgumentException("模板 " + templateId + " 含非法占位符");
@@ -88,10 +87,14 @@ public final class PromptTemplateSnapshot {
      */
     public String render(Map<String, String> variables) {
         Objects.requireNonNull(variables, "模板变量不能为 null");
+        // 用于逐个替换合法占位符的匹配器。
         Matcher matcher = VARIABLE.matcher(content);
+        // 替换后的模板内容。
         StringBuffer output = new StringBuffer();
         while (matcher.find()) {
+            // 当前占位符名称。
             String name = matcher.group(1);
+            // 调用方提供的对应变量值。
             String value = variables.get(name);
             if (value == null) {
                 throw new IllegalArgumentException("模板 " + templateId + " 缺少变量 " + name);
@@ -116,23 +119,4 @@ public final class PromptTemplateSnapshot {
                 Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
     }
 
-    /**
-     * 计算文本的稳定 SHA-256 摘要。
-     *
-     * @param value 原始文本
-     * @return 小写十六进制摘要
-     */
-    private static String sha256(String value) {
-        try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(digest.length * 2);
-            for (byte part : digest) {
-                hex.append(Character.forDigit((part >>> 4) & 0x0f, 16));
-                hex.append(Character.forDigit(part & 0x0f, 16));
-            }
-            return hex.toString();
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("运行环境不支持 SHA-256", exception);
-        }
-    }
 }

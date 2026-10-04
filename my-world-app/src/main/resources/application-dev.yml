@@ -1,5 +1,15 @@
 server:
+  address: ${SERVER_ADDRESS:127.0.0.1}
   port: ${SERVER_PORT:8080}
+
+my-world:
+  ai:
+    connectivity:
+      enabled: ${MYWORLD_AI_CONNECTIVITY_ENABLED:true}
+  codegen:
+    enabled: ${MYWORLD_CODEGEN_ENABLED:true}
+    web:
+      owner-key: ${MYWORLD_CODEGEN_OWNER_KEY:local-dev}
 
 management:
   endpoint:

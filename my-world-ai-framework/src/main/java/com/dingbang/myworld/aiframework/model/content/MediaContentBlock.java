@@ -1,5 +1,7 @@
 package com.dingbang.myworld.aiframework.model.content;
 
+import lombok.Getter;
+
 import java.net.URI;
 import java.util.Arrays;
 import java.util.Objects;
@@ -11,25 +13,34 @@ import java.util.Objects;
  * @since 2026/10/03
  */
 public final class MediaContentBlock implements ContentBlock {
-    /**
-     * 附件媒体类型。
-     *
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    public enum Kind { IMAGE, AUDIO, VIDEO, DOCUMENT }
 
-    /** 内存附件最大字节数。 */
+    /**
+     * 内存附件最大字节数。
+     */
     public static final int MAX_BYTES = 1024 * 1024;
-    /** 附件类型。 */
-    private final Kind kind;
-    /** 媒体 MIME 类型。 */
+    /**
+     * 附件类型。
+     */
+    @Getter
+    private final MediaKind kind;
+    /**
+     * 媒体 MIME 类型。
+     */
+    @Getter
     private final String mimeType;
-    /** 附件名称。 */
+    /**
+     * 附件名称。
+     */
+    @Getter
     private final String name;
-    /** HTTPS 来源，内存附件为空。 */
+    /**
+     * HTTPS 来源，内存附件为空。
+     */
+    @Getter
     private final URI url;
-    /** 内存内容，远程附件为空。 */
+    /**
+     * 内存内容，远程附件为空。
+     */
     private final byte[] bytes;
 
     /**
@@ -41,7 +52,7 @@ public final class MediaContentBlock implements ContentBlock {
      * @param url HTTPS 来源，与 bytes 二选一
      * @param bytes 内存内容，与 url 二选一
      */
-    public MediaContentBlock(Kind kind, String mimeType, String name, URI url, byte[] bytes) {
+    public MediaContentBlock(MediaKind kind, String mimeType, String name, URI url, byte[] bytes) {
         this.kind = Objects.requireNonNull(kind, "附件类型不能为空");
         if (mimeType == null || mimeType.isBlank() || !mimeType.matches("[A-Za-z0-9.+-]+/[A-Za-z0-9.+-]+")) {
             throw new IllegalArgumentException("附件 MIME 类型无效");
@@ -50,7 +61,7 @@ public final class MediaContentBlock implements ContentBlock {
             throw new IllegalArgumentException("附件名称无效");
         }
         if (!mimeType.toLowerCase(java.util.Locale.ROOT).startsWith(kind.name().toLowerCase(java.util.Locale.ROOT) + "/")
-                && !(kind == Kind.DOCUMENT && "application/pdf".equalsIgnoreCase(mimeType))) {
+                && !(kind == MediaKind.DOCUMENT && "application/pdf".equalsIgnoreCase(mimeType))) {
             throw new IllegalArgumentException("附件 MIME 与类型不匹配");
         }
         if ((url == null) == (bytes == null)) {
@@ -69,14 +80,8 @@ public final class MediaContentBlock implements ContentBlock {
         this.bytes = bytes == null ? null : Arrays.copyOf(bytes, bytes.length);
     }
 
-    /** @return 附件类型 */
-    public Kind getKind() { return kind; }
-    /** @return MIME 类型 */
-    public String getMimeType() { return mimeType; }
-    /** @return 附件名称 */
-    public String getName() { return name; }
-    /** @return HTTPS 来源或 null */
-    public URI getUrl() { return url; }
-    /** @return 内存内容副本或 null */
+    /**
+     * @return 内存内容副本或 null
+     */
     public byte[] getBytes() { return bytes == null ? null : Arrays.copyOf(bytes, bytes.length); }
 }

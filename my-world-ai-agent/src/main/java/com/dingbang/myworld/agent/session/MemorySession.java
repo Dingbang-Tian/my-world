@@ -17,30 +17,48 @@ import java.util.Objects;
  */
 final class MemorySession implements Session {
 
-    /** 会话标识。 */
+    /**
+     * 会话标识。
+     */
     private final String sessionId;
 
-    /** 所有者标识。 */
+    /**
+     * 所有者标识。
+     */
     private final String ownerId;
 
-    /** 应用标识。 */
+    /**
+     * 应用标识。
+     */
     private final String appId;
 
-    /** Agent 标识。 */
+    /**
+     * Agent 标识。
+     */
     private final String agentId;
 
-    /** 会话级模型选项。 */
+    /**
+     * 会话级模型选项。
+     */
     private final ModelOptions options;
 
-    /** 已完成的原始消息。 */
+    /**
+     * 已完成的原始消息。
+     */
     private final List<Message> history;
 
-    /** 成功提交的交换次数。 */
+    /**
+     * 成功提交的交换次数。
+     */
     private long version;
-    /** 已提交的有损摘要。 */
+    /**
+     * 已提交的有损摘要。
+     */
     private MemorySummary summary;
 
-    /** 是否有运行占用此会话。 */
+    /**
+     * 是否有运行占用此会话。
+     */
     private boolean busy;
 
     /**

@@ -12,15 +12,25 @@ import java.util.Objects;
  */
 @Data
 public final class PlanEvent {
-    /** 计划名称。 */
+    /**
+     * 计划名称。
+     */
     private final String planName;
-    /** 当前步骤序号；计划整体事件为零。 */
+    /**
+     * 当前步骤序号；计划整体事件为零。
+     */
     private final int stepNumber;
-    /** 总步骤数。 */
+    /**
+     * 总步骤数。
+     */
     private final int stepCount;
-    /** 当前步骤状态；计划整体事件为 null。 */
+    /**
+     * 当前步骤状态；计划整体事件为 null。
+     */
     private final PlanStepStatus status;
-    /** 步骤说明或计划结果。 */
+    /**
+     * 步骤说明或计划结果。
+     */
     private final String detail;
 
     /**

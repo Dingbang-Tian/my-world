@@ -3,6 +3,8 @@ package com.dingbang.myworld.common.utils;
 import cn.hutool.core.date.DatePattern;
 import cn.hutool.core.date.DateUtil;
 import cn.hutool.core.date.LocalDateTimeUtil;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -23,6 +25,7 @@ import java.util.Date;
  * @author Sebastian
  * @since 2026/09/25
  */
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
 public final class Dates {
 
     /**
@@ -259,9 +262,6 @@ public final class Dates {
     public static ZonedDateTime toTargetZoned(LocalDateTime localDateTime, ZoneId sourceZone, ZoneId targetZone) {
         ZonedDateTime sourceZonedDateTime = localDateTime.atZone(sourceZone);
         return sourceZonedDateTime.withZoneSameInstant(targetZone);
-    }
-
-    private Dates() {
     }
 
 }

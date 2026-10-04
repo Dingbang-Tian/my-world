@@ -11,12 +11,7 @@ import com.dingbang.myworld.agent.api.AgentRun;
 import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
 import com.dingbang.myworld.agent.orchestration.PlanStepStatus;
 import com.dingbang.myworld.agent.prompt.PromptTemplateRegistry;
-import com.dingbang.myworld.agent.tool.Tool;
-import com.dingbang.myworld.agent.tool.ToolExecutionContext;
-import com.dingbang.myworld.agent.tool.ToolExecutionResult;
 import com.dingbang.myworld.agent.tool.ToolRegistry;
-import com.dingbang.myworld.agent.tool.annotation.ToolInfo;
-import com.dingbang.myworld.agent.tool.annotation.ToolParam;
 import com.dingbang.myworld.aiframework.api.ModelFinishReason;
 import com.dingbang.myworld.aiframework.api.ModelTurn;
 import com.dingbang.myworld.aiframework.api.event.ModelEventListener;
@@ -24,13 +19,11 @@ import com.dingbang.myworld.aiframework.api.event.TurnCompleted;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
 import com.dingbang.myworld.aiframework.model.ToolCall;
-import com.dingbang.myworld.aiframework.model.ToolResultStatus;
 import com.dingbang.myworld.aiframework.model.content.TextContentBlock;
 import org.junit.jupiter.api.Test;
 import org.springframework.core.io.DefaultResourceLoader;
 
 import java.time.Duration;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -54,9 +47,9 @@ class PlanExecutionTest {
      */
     @Test
     void passesPriorArtifactAndReportsLifecycle() throws Exception {
-        /** 当前模型请求序号。 */
+        // 当前模型请求序号。
         AtomicInteger turn = new AtomicInteger();
-        /** 仅返回固定响应的本地模型。 */
+        // 仅返回固定响应的本地模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             switch (turn.incrementAndGet()) {
                 case 1 -> tool(listener, "plan", "create_plan", planJson("STOP"));
@@ -82,16 +75,16 @@ class PlanExecutionTest {
                 default -> throw new AssertionError("多余模型回合");
             }
         });
-        /** 已配置计划和产物工具的服务。 */
+        // 已配置计划和产物工具的服务。
         DefaultAgentService service = service(gateway, new AgentLimits(8, 8, 10000, 100,
                 Duration.ofSeconds(5), 3));
-        /** 当前运行。 */
+        // 当前运行。
         AgentRun run = service.prepare(request());
-        /** 记录计划事件。 */
+        // 记录计划事件。
         RecordingAgentEventListener observer = new RecordingAgentEventListener();
         run.subscribe(observer);
         run.execute();
-        /** 最终运行结果。 */
+        // 最终运行结果。
         AgentResult result = run.getResult().toCompletableFuture().get(5, TimeUnit.SECONDS);
         assertThat(observer.awaitCompletion(5, TimeUnit.SECONDS)).isTrue();
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
@@ -116,9 +109,9 @@ class PlanExecutionTest {
     @Test
     void stopAndContinueDoNotClaimSuccess() throws Exception {
         for (String policy : List.of("STOP", "CONTINUE")) {
-            /** 当前模型请求序号。 */
+            // 当前模型请求序号。
             AtomicInteger turn = new AtomicInteger();
-            /** 第一步固定失败的脚本模型。 */
+            // 第一步固定失败的脚本模型。
             ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
                 switch (turn.incrementAndGet()) {
                     case 1 -> tool(listener, "plan", "create_plan", planJson(policy));
@@ -139,7 +132,7 @@ class PlanExecutionTest {
                     default -> throw new AssertionError("多余模型回合");
                 }
             });
-            /** 当前策略的运行结果。 */
+            // 当前策略的运行结果。
             AgentResult result = service(gateway, new AgentLimits(6, 4, 10000, 100,
                     Duration.ofSeconds(5), 3)).run(request());
             assertThat(result.getStatus()).isEqualTo(AgentResultStatus.FAILED);
@@ -158,7 +151,7 @@ class PlanExecutionTest {
      */
     @Test
     void enforcesPlanStepAndSharedTurnLimits() throws Exception {
-        /** 步骤数超过可信上限的脚本模型。 */
+        // 步骤数超过可信上限的脚本模型。
         ScriptedAgentModelGateway tooMany = new ScriptedAgentModelGateway((request, listener) -> {
             if (request.getMessages().stream().flatMap(item -> item.getToolResults().stream()).findAny().isPresent()) {
                 text(listener, "final", "参数被拒绝");
@@ -166,7 +159,7 @@ class PlanExecutionTest {
                 tool(listener, "plan", "create_plan", planJson("STOP"));
             }
         });
-        /** 参数校验后的主运行结果。 */
+        // 参数校验后的主运行结果。
         AgentResult validation = service(tooMany, new AgentLimits(3, 3, 10000, 100,
                 Duration.ofSeconds(5), 1)).run(request());
         assertThat(validation.getStatus()).isEqualTo(AgentResultStatus.COMPLETED);
@@ -174,9 +167,9 @@ class PlanExecutionTest {
                 .flatMap(item -> item.getToolResults().stream()).findFirst().orElseThrow().getErrorCode())
                 .isEqualTo("TOOL_VALIDATION_ERROR");
 
-        /** 仅允许三个模型回合的计划。 */
+        // 仅允许三个模型回合的计划。
         AtomicInteger turn = new AtomicInteger();
-        /** 计划步骤和主任务共享回合预算的脚本模型。 */
+        // 计划步骤和主任务共享回合预算的脚本模型。
         ScriptedAgentModelGateway limited = new ScriptedAgentModelGateway((request, listener) -> {
             switch (turn.incrementAndGet()) {
                 case 1 -> tool(listener, "plan", "create_plan", planJson("STOP"));
@@ -185,7 +178,7 @@ class PlanExecutionTest {
                 default -> throw new AssertionError("预算外模型调用");
             }
         });
-        /** 超预算运行的最终结果。 */
+        // 超预算运行的最终结果。
         AgentResult result = service(limited, new AgentLimits(3, 4, 10000, 100,
                 Duration.ofSeconds(5), 3)).run(request());
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.LIMIT_EXCEEDED);
@@ -199,9 +192,9 @@ class PlanExecutionTest {
      */
     @Test
     void blocksRecursivePlanAndSharesToolBudget() throws Exception {
-        /** 当前模型请求序号。 */
+        // 当前模型请求序号。
         AtomicInteger turn = new AtomicInteger();
-        /** 步骤内故意伪造 create_plan 的模型。 */
+        // 步骤内故意伪造 create_plan 的模型。
         ScriptedAgentModelGateway recursive = new ScriptedAgentModelGateway((request, listener) -> {
             switch (turn.incrementAndGet()) {
                 case 1 -> tool(listener, "plan", "create_plan", planJson("STOP"));
@@ -218,16 +211,16 @@ class PlanExecutionTest {
                 default -> throw new AssertionError("多余模型回合");
             }
         });
-        /** 递归拒绝后的真实计划结果。 */
+        // 递归拒绝后的真实计划结果。
         AgentResult result = service(recursive, new AgentLimits(6, 4, 10000, 100,
                 Duration.ofSeconds(5), 3)).run(request());
         assertThat(result.getStatus()).isEqualTo(AgentResultStatus.FAILED);
         assertThat(result.getError().getCode()).isEqualTo("PLAN_FAILED");
         assertThat(recursive.getCallCount()).isEqualTo(4);
 
-        /** 只有创建计划一次工具额度的模型。 */
+        // 只有创建计划一次工具额度的模型。
         AtomicInteger limitedTurn = new AtomicInteger();
-        /** 第二次工具调用应在 Java 工具执行前被阻止。 */
+        // 第二次工具调用应在 Java 工具执行前被阻止。
         ScriptedAgentModelGateway limited = new ScriptedAgentModelGateway((request, listener) -> {
             if (limitedTurn.incrementAndGet() == 1) {
                 tool(listener, "plan", "create_plan", planJson("STOP"));
@@ -235,7 +228,7 @@ class PlanExecutionTest {
                 tool(listener, "file", "artifact", "{\"name\":\"forbidden.txt\"}");
             }
         });
-        /** 全局工具额度耗尽后的结果。 */
+        // 全局工具额度耗尽后的结果。
         AgentResult exhausted = service(limited, new AgentLimits(6, 1, 10000, 100,
                 Duration.ofSeconds(5), 3)).run(request());
         assertThat(exhausted.getStatus()).isEqualTo(AgentResultStatus.LIMIT_EXCEEDED);
@@ -249,9 +242,9 @@ class PlanExecutionTest {
      */
     @Test
     void parentCancellationStopsStep() throws Exception {
-        /** 步骤模型已启动的信号。 */
+        // 步骤模型已启动的信号。
         CountDownLatch entered = new CountDownLatch(1);
-        /** 收到计划后在第一步等待取消的模型。 */
+        // 收到计划后在第一步等待取消的模型。
         ScriptedAgentModelGateway gateway = new ScriptedAgentModelGateway((request, listener) -> {
             if (request.getMessages().stream().noneMatch(item -> messageText(item).contains("前序步骤结果"))) {
                 tool(listener, "plan", "create_plan", planJson("STOP"));
@@ -267,7 +260,7 @@ class PlanExecutionTest {
                 }
             }
         });
-        /** 正在执行的父运行。 */
+        // 正在执行的父运行。
         AgentRun run = service(gateway, new AgentLimits(6, 4, 10000, 100,
                 Duration.ofSeconds(5), 3)).prepare(request());
         run.execute();
@@ -286,14 +279,14 @@ class PlanExecutionTest {
      * @return Agent 服务
      */
     private static DefaultAgentService service(ScriptedAgentModelGateway gateway, AgentLimits limits) {
-        /** 公共默认提示词仓库。 */
+        // 公共默认提示词仓库。
         PromptTemplateRegistry prompts = new PromptTemplateRegistry(new DefaultResourceLoader(),
                 Map.of(), Map.of());
-        /** 计划和产物工具的可信定义。 */
+        // 计划和产物工具的可信定义。
         AgentDefinition definition = new AgentDefinition("app", "planner", "计划助手", "顺序执行计划",
                 "scripted", null, List.of("create_plan", "artifact"), List.of(), limits);
         return new DefaultAgentService(gateway, prompts, List.of(definition),
-                new ToolRegistry(List.of(new CreatePlanTool(), new ArtifactTool())), List.of(),
+                new ToolRegistry(List.of(new CreatePlanTool(), new PlanExecutionTestArtifactTool())), List.of(),
                 ForkJoinPool.commonPool());
     }
 
@@ -326,7 +319,7 @@ class PlanExecutionTest {
      * @param json 参数 JSON
      */
     private static void tool(ModelEventListener listener, String id, String name, String json) {
-        /** 完整助手消息。 */
+        // 完整助手消息。
         Message assistant = new Message("assistant-" + id, Role.ASSISTANT, List.of(),
                 List.of(new ToolCall(id, name, json)), List.of(), Map.of());
         listener.onEvent(new TurnCompleted(new ModelTurn(assistant, ModelFinishReason.TOOL_CALLS)));
@@ -341,7 +334,7 @@ class PlanExecutionTest {
      * @param answer 回答文本
      */
     private static void text(ModelEventListener listener, String id, String answer) {
-        /** 完整助手消息。 */
+        // 完整助手消息。
         Message assistant = new Message(id, Role.ASSISTANT, List.of(new TextContentBlock(answer)),
                 List.of(), List.of(), Map.of());
         listener.onEvent(new TurnCompleted(new ModelTurn(assistant, ModelFinishReason.STOP)));
@@ -359,47 +352,5 @@ class PlanExecutionTest {
                 : ((TextContentBlock) message.getContentBlocks().get(0)).getText();
     }
 
-    /**
-     * 测试产物工具参数。
-     *
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    public static final class ArtifactParameters {
-        /** 产物文件名。 */
-        @ToolParam(description = "产物文件名")
-        public String name;
-    }
 
-    /**
-     * 固定返回产物名称的测试工具。
-     *
-     * @author Sebastian
-     * @since 2026/10/03
-     */
-    @ToolInfo(name = "artifact", description = "返回生成文件名")
-    public static final class ArtifactTool implements Tool<ArtifactParameters> {
-        /**
-         * 返回工具参数类。
-         *
-         * @return 参数类
-         */
-        @Override
-        public Class<ArtifactParameters> parameterType() {
-            return ArtifactParameters.class;
-        }
-
-        /**
-         * 返回产物名称。
-         *
-         * @param parameters 已解析文件名
-         * @param context 可信运行上下文
-         * @return 文件名
-         */
-        @Override
-        public ToolExecutionResult execute(ArtifactParameters parameters, ToolExecutionContext context) {
-            context.checkActive();
-            return ToolExecutionResult.text(parameters.name);
-        }
-    }
 }

@@ -12,13 +12,21 @@ import java.util.Objects;
  * @since 2026/10/03
  */
 public final class PlanRunner {
-    /** 不可变计划定义。 */
+    /**
+     * 不可变计划定义。
+     */
     private final Plan plan;
-    /** 按步骤保存的程序状态。 */
+    /**
+     * 按步骤保存的程序状态。
+     */
     private final List<PlanStepStatus> statuses;
-    /** 按步骤保存的实际结果或错误。 */
+    /**
+     * 按步骤保存的实际结果或错误。
+     */
     private final List<String> results;
-    /** 当前步骤的零基序号。 */
+    /**
+     * 当前步骤的零基序号。
+     */
     private int index = -1;
 
     /**
@@ -48,12 +56,12 @@ public final class PlanRunner {
                 || restoredResults.size() != plan.getSteps().size()) {
             throw new IllegalArgumentException("恢复计划的步骤数量不匹配");
         }
-        /** 待恢复的计划运行器。 */
+        // 待恢复的计划运行器。
         PlanRunner runner = new PlanRunner(plan);
-        /** 是否已经遇到未执行步骤。 */
+        // 是否已经遇到未执行步骤。
         boolean pending = false;
         for (int index = 0; index < restoredStatuses.size(); index++) {
-            /** 当前步骤状态。 */
+            // 当前步骤状态。
             PlanStepStatus status = restoredStatuses.get(index);
             if (status == PlanStepStatus.RUNNING || (pending && status != PlanStepStatus.PENDING)) {
                 throw new IllegalArgumentException("计划未停在可恢复的步骤边界");
@@ -103,8 +111,8 @@ public final class PlanRunner {
         }
         statuses.set(index, status);
         results.set(index, Objects.requireNonNull(result, "步骤结果不能为 null"));
-        if (status == PlanStepStatus.FAILED && plan.getFailurePolicy() == Plan.FailurePolicy.STOP) {
-            /** 尚未执行的步骤索引。 */
+        if (status == PlanStepStatus.FAILED && plan.getFailurePolicy() == PlanFailurePolicy.STOP) {
+            // 尚未执行的步骤索引。
             for (int remaining = index + 1; remaining < statuses.size(); remaining++) {
                 statuses.set(remaining, PlanStepStatus.SKIPPED);
             }
@@ -118,9 +126,9 @@ public final class PlanRunner {
      * @return 按步骤排序的结果摘要
      */
     public String priorResults() {
-        /** 前序结果文本。 */
+        // 前序结果文本。
         StringBuilder summary = new StringBuilder();
-        /** 前序步骤的索引。 */
+        // 前序步骤的索引。
         for (int step = 0; step < index; step++) {
             if (results.get(step) != null) {
                 summary.append("步骤 ").append(step + 1).append(" [")
@@ -136,10 +144,10 @@ public final class PlanRunner {
      * @return 可回传模型的完整计划结果
      */
     public String summary() {
-        /** 完整计划摘要。 */
+        // 完整计划摘要。
         StringBuilder summary = new StringBuilder("计划 ").append(plan.getName())
                 .append("：").append(succeeded() ? "SUCCEEDED" : "FAILED").append('\n');
-        /** 待汇总步骤的索引。 */
+        // 待汇总步骤的索引。
         for (int step = 0; step < statuses.size(); step++) {
             summary.append("步骤 ").append(step + 1).append(" [")
                     .append(statuses.get(step)).append("] ")

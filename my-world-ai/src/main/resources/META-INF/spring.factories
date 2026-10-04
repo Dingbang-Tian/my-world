@@ -1,2 +1,0 @@
-org.springframework.boot.env.EnvironmentPostProcessor=\
-com.dingbang.myworld.ai.crypto.EncryptedPropertyEnvironmentPostProcessor

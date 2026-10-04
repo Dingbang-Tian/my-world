@@ -1,5 +1,11 @@
 package com.dingbang.myworld.agent.runtime;
 
+import com.dingbang.myworld.agent.orchestration.CreatePlanParameters;
+import com.dingbang.myworld.agent.orchestration.CreateSubAgentParameters;
+import com.dingbang.myworld.agent.orchestration.PlanFailurePolicy;
+import com.dingbang.myworld.agent.persistence.PlanRecovery;
+import com.dingbang.myworld.agent.persistence.RecoveryCheckpoint;
+
 import com.dingbang.myworld.agent.api.AgentDefinition;
 import com.dingbang.myworld.agent.api.AgentError;
 import com.dingbang.myworld.agent.api.AgentLimits;
@@ -15,9 +21,6 @@ import com.dingbang.myworld.agent.memory.ContextPolicy;
 import com.dingbang.myworld.agent.memory.MemorySummary;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
 import com.dingbang.myworld.agent.persistence.RunJournal;
-import com.dingbang.myworld.agent.persistence.RecoveryJournal;
-import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
-import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
 import com.dingbang.myworld.agent.orchestration.Plan;
 import com.dingbang.myworld.agent.orchestration.PlanEvent;
 import com.dingbang.myworld.agent.orchestration.PlanRunner;
@@ -46,12 +49,7 @@ import com.dingbang.myworld.aiframework.api.ModelRequest;
 import com.dingbang.myworld.aiframework.api.ModelTokenUsage;
 import com.dingbang.myworld.aiframework.api.ModelToolDefinition;
 import com.dingbang.myworld.aiframework.api.ModelTurn;
-import com.dingbang.myworld.aiframework.api.event.ModelEvent;
 import com.dingbang.myworld.aiframework.api.event.ModelEventListener;
-import com.dingbang.myworld.aiframework.api.event.ReasoningDelta;
-import com.dingbang.myworld.aiframework.api.event.TextDelta;
-import com.dingbang.myworld.aiframework.api.event.TurnCompleted;
-import com.dingbang.myworld.aiframework.api.event.UsageReported;
 import com.dingbang.myworld.aiframework.api.event.ValidatingModelEventListener;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.aiframework.model.Role;
@@ -88,117 +86,233 @@ import java.util.concurrent.TimeUnit;
  * @since 2026/10/02
  */
 final class DefaultAgentRun implements AgentRun {
-    /** 本次运行标识。 */
-    private final String runId;
-    /** 所属会话标识。 */
+    /**
+     * 本次运行标识。
+     */
+     final String runId;
+    /**
+     * 所属会话标识。
+     */
     private final String sessionId;
-    /** 可信 Agent 定义。 */
-    private final AgentDefinition definition;
-    /** 用户请求快照。 */
+    /**
+     * 可信 Agent 定义。
+     */
+     final AgentDefinition definition;
+    /**
+     * 用户请求快照。
+     */
     private final AgentRequest request;
-    /** 已渲染的系统消息。 */
+    /**
+     * 已渲染的系统消息。
+     */
     private final Message systemMessage;
-    /** 固定的模板版本。 */
+    /**
+     * 固定的模板版本。
+     */
     private final PromptTemplateSnapshot template;
-    /** 所属进程内会话。 */
+    /**
+     * 所属进程内会话。
+     */
     private final Session session;
-    /** 单次模型入口。 */
+    /**
+     * 单次模型入口。
+     */
     private final ModelGateway gateway;
-    /** 运行级授权工具执行器。 */
+    /**
+     * 运行级授权工具执行器。
+     */
     private final ToolExecutor toolExecutor;
-    /** 当前运行的可信工具快照。 */
+    /**
+     * 当前运行的可信工具快照。
+     */
     private final ToolRegistry authorizedTools;
-    /** 固定的计划步骤模板；未授权计划时为 null。 */
+    /**
+     * 固定的计划步骤模板；未授权计划时为 null。
+     */
     private final PromptTemplateSnapshot planStepTemplate;
-    /** 固定的子 Agent 模板；未授权子 Agent 时为 null。 */
+    /**
+     * 固定的子 Agent 模板；未授权子 Agent 时为 null。
+     */
     private final PromptTemplateSnapshot subAgentTemplate;
-    /** 本次运行固定的摘要模板。 */
+    /**
+     * 本次运行固定的摘要模板。
+     */
     private final PromptTemplateSnapshot summaryTemplate;
-    /** 上下文组装和输入大小估算器。 */
+    /**
+     * 上下文组装和输入大小估算器。
+     */
     private final ContextAssembler contextAssembler = new ContextAssembler();
-    /** 创建独立子会话所用的可信仓库。 */
+    /**
+     * 创建独立子会话所用的可信仓库。
+     */
     private final SessionRepository sessions;
-    /** 运行、事件及工具检查点记录器。 */
+    /**
+     * 运行、事件及工具检查点记录器。
+     */
     private final RunJournal journal;
-    /** 显式恢复的来源运行；普通运行时为 null。 */
+    /**
+     * 显式恢复的来源运行；普通运行时为 null。
+     */
     private final String resumedFromRunId;
-    /** 已确认的模型续接边界，可为 null。 */
-    private final RecoveryJournal.RecoveryCheckpoint recovery;
-    /** 可复用已完成步骤的计划恢复状态。 */
-    private final RecoveryJournal.PlanRecovery planRecovery;
-    /** 当前子运行所属父运行；根运行为 null。 */
+    /**
+     * 已确认的模型续接边界，可为 null。
+     */
+    private final RecoveryCheckpoint recovery;
+    /**
+     * 可复用已完成步骤的计划恢复状态。
+     */
+    private final PlanRecovery planRecovery;
+    /**
+     * 当前子运行所属父运行；根运行为 null。
+     */
     private final String parentRunId;
-    /** 整棵运行树的根标识。 */
+    /**
+     * 整棵运行树的根标识。
+     */
     private final String rootRunId;
-    /** 当前运行的子 Agent 嵌套层数。 */
+    /**
+     * 本次运行的安全日志与工具阶段审计拦截器。
+     */
+     final RunAuditInterceptor audit;
+    /**
+     * 当前运行的子 Agent 嵌套层数。
+     */
     private final int depth;
-    /** 子运行继承的父级截止时间；根运行为 null。 */
+    /**
+     * 子运行继承的父级截止时间；根运行为 null。
+     */
     private final Instant inheritedDeadline;
-    /** 模型可见的可信工具说明。 */
+    /**
+     * 模型可见的可信工具说明。
+     */
     private final List<ModelToolDefinition> modelTools;
-    /** 执行模型和工具的专用执行器。 */
-    private final Executor executor;
-    /** 独立事件消费者的有限发布器。 */
+    /**
+     * 执行模型和工具的专用执行器。
+     */
+     final Executor executor;
+    /**
+     * 独立事件消费者的有限发布器。
+     */
     private final AgentEventPublisher eventPublisher;
-    /** 所有调用方共享的唯一结果。 */
+    /**
+     * 所有调用方共享的唯一结果。
+     */
     private final CompletableFuture<AgentResult> completion = new CompletableFuture<>();
-    /** 协议及工具共享的取消令牌。 */
+    /**
+     * 协议及工具共享的取消令牌。
+     */
     private final CancellationToken cancellation = new CancellationToken();
-    /** 保护状态、消息、用量及事件序列的锁。 */
-    private final Object stateLock = new Object();
-    /** execute 是否已经启动过。 */
+    /**
+     * 保护状态、消息、用量及事件序列的锁。
+     */
+     final Object stateLock = new Object();
+    /**
+     * execute 是否已经启动过。
+     */
     private boolean started;
-    /** 是否已取得唯一终态。 */
-    private boolean terminal;
-    /** 是否持有会话运行权。 */
+    /**
+     * 是否已取得唯一终态。
+     */
+     boolean terminal;
+    /**
+     * 是否持有会话运行权。
+     */
     private boolean ownsSession;
-    /** 运行记录是否已在持久化日志创建。 */
+    /**
+     * 运行记录是否已在持久化日志创建。
+     */
     private boolean journalStarted;
-    /** 当前运行的事件序号。 */
+    /**
+     * 当前运行的事件序号。
+     */
     private long eventSequence;
-    /** 已完成模型回合的用量。 */
+    /**
+     * 已完成模型回合的用量。
+     */
     private ModelTokenUsage usageTotal;
-    /** 已计入本运行及子树的模型调用用量，按调用标识去重。 */
+    /**
+     * 已计入本运行及子树的模型调用用量，按调用标识去重。
+     */
     private final Map<String, ModelTokenUsage> usageByModelCallId = new LinkedHashMap<>();
-    /** 已接纳的模型和工具输出字符数。 */
-    private long outputCharacters;
-    /** 已准备执行的工具调用次数。 */
+    /**
+     * 已接纳的模型和工具输出字符数。
+     */
+     long outputCharacters;
+    /**
+     * 已准备执行的工具调用次数。
+     */
     private int toolCalls;
-    /** 本运行及子树已经使用的模型回合数。 */
+    /**
+     * 本运行及子树已经使用的模型回合数。
+     */
     private int modelTurnsUsed;
-    /** 当前运行中已发出的摘要模型请求数。 */
+    /**
+     * 当前运行中已发出的摘要模型请求数。
+     */
     private int summaryCalls;
-    /** 正在构造的本轮交换。 */
+    /**
+     * 正在构造的本轮交换。
+     */
     private List<Message> exchange;
-    /** 模型下一回合需要的完整上下文。 */
+    /**
+     * 模型下一回合需要的完整上下文。
+     */
     private List<Message> messages;
-    /** 本轮读取的历史版本。 */
+    /**
+     * 本轮读取的历史版本。
+     */
     private long sessionVersion;
-    /** 开始本轮时读取的完整会话快照。 */
+    /**
+     * 开始本轮时读取的完整会话快照。
+     */
     private SessionSnapshot initialSnapshot;
-    /** 全局截止时间。 */
+    /**
+     * 全局截止时间。
+     */
     private Instant deadline;
-    /** 可在任意终态撤销的超时任务。 */
+    /**
+     * 可在任意终态撤销的超时任务。
+     */
     private ScheduledFuture<?> timeoutTask;
-    /** 当前计划的独立步骤状态；没有执行计划时为 null。 */
+    /**
+     * 当前计划的独立步骤状态；没有执行计划时为 null。
+     */
     private PlanRunner planRunner;
-    /** 计划调用所在的父级消息列表。 */
+    /**
+     * 计划调用所在的父级消息列表。
+     */
     private List<Message> parentMessages;
-    /** 计划调用所在的父级交换。 */
+    /**
+     * 计划调用所在的父级交换。
+     */
     private List<Message> parentExchange;
-    /** 创建计划之前的有效消息。 */
+    /**
+     * 创建计划之前的有效消息。
+     */
     private List<Message> planBaseMessages;
-    /** 已完成步骤的有效模型对话。 */
+    /**
+     * 已完成步骤的有效模型对话。
+     */
     private final List<Message> planTranscript = new ArrayList<>();
-    /** 当前步骤对话在消息中的起点。 */
+    /**
+     * 当前步骤对话在消息中的起点。
+     */
     private int stepTranscriptStart;
-    /** 当前计划对应的模型工具调用。 */
+    /**
+     * 当前计划对应的模型工具调用。
+     */
     private ToolCall planCall;
-    /** 当前步骤是否发生未被证明已恢复的工具错误。 */
+    /**
+     * 当前步骤是否发生未被证明已恢复的工具错误。
+     */
     private boolean stepHadToolError;
-    /** 本次运行是否有失败计划。 */
+    /**
+     * 本次运行是否有失败计划。
+     */
     private boolean planFailed;
-    /** 失败计划的真实结果。 */
+    /**
+     * 失败计划的真实结果。
+     */
     private String failedPlanSummary;
 
     /**
@@ -233,8 +347,8 @@ final class DefaultAgentRun implements AgentRun {
                     PromptTemplateSnapshot planStepTemplate, PromptTemplateSnapshot subAgentTemplate,
                     PromptTemplateSnapshot summaryTemplate, SessionRepository sessions,
                     RunJournal journal, Executor executor, int depth, Instant inheritedDeadline,
-                    String resumedFromRunId, RecoveryJournal.RecoveryCheckpoint recovery,
-                    RecoveryJournal.PlanRecovery planRecovery, String parentRunId, String rootRunId) {
+                    String resumedFromRunId, RecoveryCheckpoint recovery,
+                    PlanRecovery planRecovery, String parentRunId, String rootRunId) {
         this.runId = Objects.requireNonNull(runId, "运行标识不能为 null");
         this.sessionId = Objects.requireNonNull(sessionId, "会话标识不能为 null");
         this.definition = Objects.requireNonNull(definition, "Agent 定义不能为 null");
@@ -255,9 +369,10 @@ final class DefaultAgentRun implements AgentRun {
         this.planRecovery = planRecovery;
         this.parentRunId = parentRunId;
         this.rootRunId = Objects.requireNonNull(rootRunId, "根运行标识不能为 null");
+        this.audit = new RunAuditInterceptor(rootRunId, runId, sessionId, parentRunId);
         this.depth = depth;
         this.inheritedDeadline = inheritedDeadline;
-        /** 本轮模型可见的工具说明。 */
+        // 本轮模型可见的工具说明。
         List<ModelToolDefinition> descriptions = new ArrayList<>();
         for (ToolDescriptor<?> descriptor : tools.getDescriptors()) {
             descriptions.add(new ModelToolDefinition(descriptor.getName(), descriptor.getDescription(),
@@ -326,12 +441,14 @@ final class DefaultAgentRun implements AgentRun {
      */
     @Override
     public void execute() {
+        // 第一阶段：竞争唯一启动权，确保一次运行不会重复调用模型。
         synchronized (stateLock) {
             if (started || terminal) {
                 throw new IllegalStateException("Agent 运行只能执行一次");
             }
             started = true;
         }
+        // 第二阶段：获得会话租约，保证同一会话只有一个顶层运行写历史。
         if (!session.tryStart()) {
             stop(AgentResultStatus.FAILED, AgentEventType.FAILED, "SESSION_BUSY", "会话已有运行正在执行", null);
             return;
@@ -345,42 +462,46 @@ final class DefaultAgentRun implements AgentRun {
             }
         }
         try {
+            // 第三阶段：先持久化运行起点，再构造上下文和安排模型调用。
             journal.start(runId, sessionId, request, definition.getModelId(),
                     template.getContentHash(), resumedFromRunId, parentRunId, rootRunId);
             journalStarted = true;
-            /** 当前用户的完整消息。 */
+            audit.started(request, definition, request.getModelOptions().overlay(session.options()),
+                    template.getContentHash());
+            // 用户文本和附件共同组成完整 USER 消息。
             Message user = userMessage(runId + ":user", request);
             synchronized (stateLock) {
-                /** 历史和版本的同一快照。 */
+                // 历史、摘要和版本必须来自同一个会话快照。
                 SessionSnapshot snapshot = session.snapshot();
                 sessionVersion = snapshot.getVersion();
                 initialSnapshot = snapshot;
-                if (recovery != null && recovery.sessionVersion() != snapshot.getVersion()) {
+                if (recovery != null && recovery.getSessionVersion() != snapshot.getVersion()) {
                     throw new IllegalStateException("NEEDS_REVIEW: 会话版本在中断后已变化");
                 }
                 exchange = recovery == null ? new ArrayList<>(List.of(user))
-                        : new ArrayList<>(recovery.exchange());
+                        : new ArrayList<>(recovery.getExchange());
                 messages = contextAssembler.assemble(systemMessage, snapshot, exchange);
                 if (recovery != null) {
                     toolCalls = (int) exchange.stream().mapToLong(message -> message.getToolCalls().size()).sum();
-                    modelTurnsUsed = recovery.nextModelTurn() - 1;
+                    modelTurnsUsed = recovery.getNextModelTurn() - 1;
                 }
                 journal.checkpoint(runId, sessionId, request, sessionVersion,
-                        recovery == null ? 1 : recovery.nextModelTurn(), exchange);
-                /** 当前运行的实际截止时间。 */
+                        recovery == null ? 1 : recovery.getNextModelTurn(), exchange);
+                // 子运行不能突破父运行截止时间，因此选择两个截止时间中更早的一个。
                 Instant ownDeadline = Instant.now().plus(definition.getLimits().getTimeout());
                 deadline = inheritedDeadline == null || ownDeadline.isBefore(inheritedDeadline)
                         ? ownDeadline : inheritedDeadline;
-                /** 截止时间相对现在的剩余纳秒数。 */
+                // 使用单次定时任务触发全局超时终态。
                 long remainingNanos = Math.max(1, Duration.between(Instant.now(), deadline).toNanos());
                 timeoutTask = AgentExecutors.TIMER.schedule(this::timeout,
                         remainingNanos, TimeUnit.NANOSECONDS);
             }
+            // 第四阶段：恢复计划或进入普通模型循环。
             if (planRecovery != null) {
                 restorePlan();
-                advancePlan(recovery.nextModelTurn() - 1);
+                advancePlan(recovery.getNextModelTurn() - 1);
             } else {
-                scheduleModel(recovery == null ? 1 : recovery.nextModelTurn());
+                scheduleModel(recovery == null ? 1 : recovery.getNextModelTurn());
             }
         } catch (RuntimeException exception) {
             fail(persistenceCode("PREPARATION_FAILURE", exception), exception);
@@ -423,7 +544,7 @@ final class DefaultAgentRun implements AgentRun {
             fail("SUMMARY_FAILURE", exception);
             return;
         }
-        /** 固定的本轮请求。 */
+        // ModelRequest 在状态锁内构造，离开锁后作为不可变快照交给协议层。
         ModelRequest modelRequest;
         try {
             synchronized (stateLock) {
@@ -443,7 +564,7 @@ final class DefaultAgentRun implements AgentRun {
                     return;
                 }
                 modelTurnsUsed = Math.max(modelTurnsUsed, turnNumber + summaryCalls);
-                /** 计划内部从模型可见工具列表中移除递归计划能力。 */
+                // 计划步骤不得递归创建计划，但仍可使用其他已授权工具。
                 List<ModelToolDefinition> visibleTools = planRunner == null ? modelTools
                         : modelTools.stream().filter(tool -> !tool.getName().equals("create_plan")).toList();
                 if (contextAssembler.estimate(messages, visibleTools) > inputCapacity()) {
@@ -468,33 +589,33 @@ final class DefaultAgentRun implements AgentRun {
      * 在首轮请求前按阈值压缩完整历史，并原子提交最终摘要。
      */
     private void prepareInitialContext() {
-        /** 本次开始时的历史快照。 */
+        // 本次开始时的历史快照。
         SessionSnapshot snapshot = initialSnapshot;
-        /** 可信摘要策略。 */
+        // 可信摘要策略。
         ContextPolicy policy = definition.getContextPolicy();
-        /** 已覆盖消息数量。 */
+        // 已覆盖消息数量。
         int covered = snapshot.getSummary() == null ? 0 : snapshot.getSummary().getCoveredMessageCount();
-        /** 未覆盖完整交换数量。 */
+        // 未覆盖完整交换数量。
         long rounds = snapshot.getMessages().subList(covered, snapshot.getMessages().size()).stream()
                 .filter(message -> message.getRole() == Role.USER).count();
-        /** 首轮完整输入估算。 */
+        // 首轮完整输入估算。
         int estimated = contextAssembler.estimate(messages, modelTools);
         if (snapshot.getMessages().size() == covered
                 || (rounds < policy.getTriggerRounds() && estimated < policy.getTriggerTokens()
                 && estimated <= inputCapacity())) {
             return;
         }
-        /** 待原子提交的逐块摘要，失败时不会覆盖原始历史。 */
+        // 待原子提交的逐块摘要，失败时不会覆盖原始历史。
         MemorySummary working = snapshot.getSummary();
         while (covered < snapshot.getMessages().size()) {
             new ModelExecutionContext(deadline, cancellation, 1).checkActive();
-            /** 在摘要请求窗口内可容纳的最大完整交换末尾。 */
+            // 在摘要请求窗口内可容纳的最大完整交换末尾。
             int selectedEnd = covered;
-            /** 当前候选的完整交换结束位置。 */
+            // 当前候选的完整交换结束位置。
             for (int index = covered + 1; index <= snapshot.getMessages().size(); index++) {
                 if (index < snapshot.getMessages().size()
                         && snapshot.getMessages().get(index).getRole() != Role.USER) continue;
-                /** 候选摘要请求。 */
+                // 候选摘要请求。
                 Message candidate = summaryPrompt(working, snapshot.getMessages().subList(covered, index));
                 if (contextAssembler.estimate(List.of(candidate), List.of())
                         > policy.getWindowTokens() - policy.getMaxSummaryTokens()) break;
@@ -504,9 +625,9 @@ final class DefaultAgentRun implements AgentRun {
                 throw new ExecutionControlException("LIMIT_EXCEEDED",
                         "CONTEXT_WINDOW_EXCEEDED: 单个完整交换无法放入摘要窗口");
             }
-            /** 本块摘要请求。 */
+            // 本块摘要请求。
             Message prompt = summaryPrompt(working, snapshot.getMessages().subList(covered, selectedEnd));
-            /** 当前块的摘要文本。 */
+            // 当前块的摘要文本。
             String compressed = requestSummary(prompt);
             if (compressed.getBytes(StandardCharsets.UTF_8).length > policy.getMaxSummaryTokens()) {
                 throw new IllegalStateException("SUMMARY_TOO_LONG: 摘要超过配置上限");
@@ -518,7 +639,7 @@ final class DefaultAgentRun implements AgentRun {
             if (terminal) return;
             session.updateSummary(snapshot.getVersion(), snapshot.getSummary() == null ? 0
                     : snapshot.getSummary().getCoveredMessageCount(), working);
-            /** 保留首轮用户消息并从新摘要构造模型上下文。 */
+            // 保留首轮用户消息并从新摘要构造模型上下文。
             Message user = exchange.get(0);
             messages = contextAssembler.assemble(systemMessage, session.snapshot(), List.of(user));
             emitLocked(AgentEventType.MEMORY_COMPRESSED,
@@ -534,22 +655,22 @@ final class DefaultAgentRun implements AgentRun {
      * @return 摘要系统消息
      */
     private Message summaryPrompt(MemorySummary previous, List<Message> exchanges) {
-        /** 供摘要模型阅读的结构化文本。 */
+        // 供摘要模型阅读的结构化文本。
         StringBuilder conversation = new StringBuilder();
         if (previous != null) conversation.append("既有摘要：\n").append(previous.getText()).append("\n");
-        /** 当前待摘要的消息。 */
+        // 当前待摘要的消息。
         for (Message message : exchanges) {
             conversation.append(message.getRole()).append(':');
-            /** 当前消息的文本块。 */
+            // 当前消息的文本块。
             for (ContentBlock block : message.getContentBlocks()) {
                 if (block instanceof TextContentBlock text) conversation.append(' ').append(text.getText());
             }
-            /** 当前消息中的工具调用。 */
+            // 当前消息中的工具调用。
             for (ToolCall call : message.getToolCalls()) {
                 conversation.append(" 调用[").append(call.getCallId()).append(' ')
                         .append(call.getName()).append(' ').append(call.getArgumentsJson()).append(']');
             }
-            /** 当前消息中的工具结果。 */
+            // 当前消息中的工具结果。
             for (ToolResult result : message.getToolResults()) {
                 conversation.append(" 结果[").append(result.getCallId()).append(' ')
                         .append(result.getStatus()).append(' ').append(result.getContent()).append(']');
@@ -575,69 +696,40 @@ final class DefaultAgentRun implements AgentRun {
             summaryCalls++;
             modelTurnsUsed++;
         }
-        /** 摘要模型回合的最终结果。 */
+        // 摘要模型回合的最终结果。
         CompletableFuture<ModelTurn> completed = new CompletableFuture<>();
-        /** 已收到但尚待正常结束的回合。 */
-        ModelTurn[] received = new ModelTurn[1];
-        /** 摘要调用标识。 */
+        // 摘要调用标识。
         String callId = runId + ":summary:" + summaryCalls;
-        /** 当前剩余输出字符预算。 */
+        // 摘要模型调用开始的单调时间。
+        long summaryStartedNanos = System.nanoTime();
+        audit.modelStarted(callId);
+        // 当前剩余输出字符预算。
         int remainingCharacters;
         synchronized (stateLock) {
             remainingCharacters = definition.getLimits().getMaxOutputCharacters() - (int) outputCharacters;
         }
         if (remainingCharacters < 1) throw new ExecutionControlException("LIMIT_EXCEEDED", "摘要输出预算已耗尽");
-        /** 摘要请求只携带 SYSTEM 提示，不授权工具。 */
+        // 摘要请求只携带 SYSTEM 提示，不授权工具。
         ModelRequest summaryRequest = new ModelRequest(definition.getModelId(), List.of(prompt), List.of(),
                 new ModelOptions(0.0, definition.getContextPolicy().getMaxSummaryTokens(), null),
                 new ModelExecutionContext(deadline, cancellation, remainingCharacters));
-        /** 完成后才交付摘要文本的监听器。 */
-        ModelEventListener listener = new ValidatingModelEventListener(new ModelEventListener() {
-            /**
-             * 保存完整模型回合。
-             *
-             * @param event 模型事件
-             */
-            @Override
-            public void onEvent(ModelEvent event) {
-                if (event instanceof TurnCompleted turn) received[0] = turn.getTurn();
-            }
-
-            /**
-             * 传播摘要失败。
-             *
-             * @param error 模型错误
-             */
-            @Override
-            public void onError(Throwable error) {
-                completed.completeExceptionally(error);
-            }
-
-            /**
-             * 交付唯一完整摘要回合。
-             */
-            @Override
-            public void onComplete() {
-                if (received[0] == null) completed.completeExceptionally(
-                        new IllegalStateException("摘要模型未返回完整回合"));
-                else completed.complete(received[0]);
-            }
-        });
-        /** 摘要线程的取消注册动作。 */
+        // 完成后才交付摘要文本的监听器。
+        ModelEventListener listener = new ValidatingModelEventListener(new SummaryModelListener(completed));
+        // 摘要线程的取消注册动作。
         Thread worker = Thread.currentThread();
         Runnable unregister = cancellation.onCancel(() -> {
             if (Thread.currentThread() != worker) worker.interrupt();
         });
         try {
             gateway.generate(summaryRequest, listener);
-            /** 距全局截止时间的等待毫秒数。 */
+            // 距全局截止时间的等待毫秒数。
             long waitMillis = Math.max(1, Duration.between(Instant.now(), deadline).toMillis());
-            /** 摘要模型的完整回合。 */
+            // 摘要模型的完整回合。
             ModelTurn turn = completed.get(waitMillis, TimeUnit.MILLISECONDS);
             if (turn.getFinishReason() != ModelFinishReason.STOP || !turn.getAssistantMessage().getToolCalls().isEmpty()) {
                 throw new IllegalStateException("摘要模型未正常结束");
             }
-            /** 完整摘要文本。 */
+            // 完整摘要文本。
             String summaryText = getText(turn.getAssistantMessage()).trim();
             if (summaryText.isEmpty()) throw new IllegalStateException("摘要模型返回空文本");
             synchronized (stateLock) {
@@ -648,6 +740,7 @@ final class DefaultAgentRun implements AgentRun {
                 }
                 if (turn.getUsage() != null && usageByModelCallId.putIfAbsent(callId, turn.getUsage()) == null) {
                     usageTotal = usageTotal == null ? turn.getUsage() : usageTotal.plus(turn.getUsage());
+                    audit.usage(callId, turn.getUsage());
                     emitLocked(AgentEventType.USAGE, null, null, null, turn.getUsage());
                 }
             }
@@ -660,6 +753,8 @@ final class DefaultAgentRun implements AgentRun {
         } catch (ExecutionException exception) {
             throw new IllegalStateException("摘要模型调用失败", exception.getCause());
         } finally {
+            audit.modelFinished(callId, System.nanoTime() - summaryStartedNanos,
+                    completed.isCompletedExceptionally() ? "SUMMARY_FAILURE" : "completed");
             unregister.run();
         }
     }
@@ -670,9 +765,9 @@ final class DefaultAgentRun implements AgentRun {
      * @return 输入 token 估算容量
      */
     private int inputCapacity() {
-        /** 可信窗口策略。 */
+        // 可信窗口策略。
         ContextPolicy policy = definition.getContextPolicy();
-        /** 本次与会话合并的生成选项。 */
+        // 本次与会话合并的生成选项。
         Integer completion = request.getModelOptions().overlay(session.options()).getMaxCompletionTokens();
         return policy.getWindowTokens() - Math.max(policy.getReserveOutputTokens(),
                 completion == null ? 0 : completion);
@@ -685,9 +780,14 @@ final class DefaultAgentRun implements AgentRun {
      * @param turnNumber 当前回合编号
      */
     private void invokeModel(ModelRequest modelRequest, int turnNumber) {
-        /** 当前阻塞调用所在的线程。 */
+        // 模型调用开始的单调时间。
+        long startedNanos = System.nanoTime();
+        // 本次模型调用的可关联标识。
+        String modelCallId = runId + ":model:" + turnNumber;
+        audit.modelStarted(modelCallId);
+        // 当前阻塞调用所在的线程。
         Thread worker = Thread.currentThread();
-        /** 正常返回时移除的取消注册。 */
+        // 正常返回时移除的取消注册。
         Runnable unregister = cancellation.onCancel(() -> {
             if (Thread.currentThread() != worker) {
                 worker.interrupt();
@@ -695,14 +795,17 @@ final class DefaultAgentRun implements AgentRun {
         });
         try {
             modelRequest.getExecutionContext().checkActive();
-            /** 每轮独立校验回调唯一完整结果的监听器。 */
-            ModelEventListener listener = new ValidatingModelEventListener(new RoundListener(turnNumber));
+            // 每轮独立校验回调唯一完整结果的监听器。
+            ModelEventListener listener = new ValidatingModelEventListener(new AgentRoundListener(this, turnNumber, startedNanos));
             gateway.generate(modelRequest, listener);
         } catch (ExecutionControlException exception) {
+            audit.modelFinished(modelCallId, System.nanoTime() - startedNanos, exception.getCode());
             stopForControl(exception);
         } catch (ModelGatewayException exception) {
+            audit.modelFinished(modelCallId, System.nanoTime() - startedNanos, exception.getCode());
             handleModelFailure(exception.getCode(), exception, turnNumber);
         } catch (RuntimeException exception) {
+            audit.modelFinished(modelCallId, System.nanoTime() - startedNanos, "MODEL_FAILURE");
             handleModelFailure("MODEL_FAILURE", exception, turnNumber);
         } finally {
             unregister.run();
@@ -716,12 +819,12 @@ final class DefaultAgentRun implements AgentRun {
      * @param turnNumber 当前回合编号
      * @param streamedCharacters 本回合已向调用方发送的字符数
      */
-    private void completeRound(ModelTurn turn, int turnNumber, long streamedCharacters) {
+     void completeRound(ModelTurn turn, int turnNumber, long streamedCharacters) {
         try {
             Objects.requireNonNull(turn, "模型未返回完整回合");
-            /** 完整助手消息。 */
+            // delta 只用于实时展示，历史始终保存 ModelTurn 中的完整助手消息。
             Message assistant = turn.getAssistantMessage();
-            /** 本回合最终完整内容的字符数。 */
+            // 取流式字符和完整消息字符的较大值，避免重复计费也避免漏计。
             long completeCharacters = countContent(assistant);
             synchronized (stateLock) {
                 if (terminal) {
@@ -738,14 +841,16 @@ final class DefaultAgentRun implements AgentRun {
                 }
                 outputCharacters += Math.max(streamedCharacters, completeCharacters);
                 if (turn.getUsage() != null) {
-                    /** 全树唯一的模型调用标识。 */
+                    // 模型调用标识在父子运行树内唯一，用于去重汇总 usage。
                     String modelCallId = runId + ":model:" + turnNumber;
                     if (usageByModelCallId.putIfAbsent(modelCallId, turn.getUsage()) == null) {
                         usageTotal = usageTotal == null ? turn.getUsage() : usageTotal.plus(turn.getUsage());
+                        audit.usage(modelCallId, turn.getUsage());
                         emitLocked(AgentEventType.USAGE, null, null, null, turn.getUsage());
                     }
                 }
             }
+            // TOOL_CALLS 进入工具循环，其他结束原因必须满足普通文本终态约束。
             if (turn.getFinishReason() == ModelFinishReason.TOOL_CALLS) {
                 completeTools(assistant, turnNumber);
                 return;
@@ -760,7 +865,7 @@ final class DefaultAgentRun implements AgentRun {
             if (turn.getFinishReason() != ModelFinishReason.STOP) {
                 throw new IllegalArgumentException("模型没有正常完成回答: " + turn.getFinishReason());
             }
-            /** 从完整助手消息读取的最终文本。 */
+            // 最终文本只从完整消息读取，不能再次拼接已发布的 delta。
             String finalText = getText(assistant);
             if (planRunner != null) {
                 completePlanStep(assistant, finalText, turnNumber);
@@ -781,18 +886,19 @@ final class DefaultAgentRun implements AgentRun {
      * @param turnNumber 当前回合编号
      */
     private void completeTools(Message assistant, int turnNumber) {
-        /** 本回合完整工具调用。 */
+        // 先验证整批调用，确保任何 Java 工具执行前 callId 已经完整且唯一。
         List<ToolCall> calls = assistant.getToolCalls();
         if (calls.isEmpty()) {
             throw new IllegalArgumentException("工具回合缺少调用");
         }
-        /** 当前回合已见的工具标识。 */
+        // 本回合已出现的工具调用标识，用于拒绝重复调用。
         Set<String> callIds = new HashSet<>();
         for (ToolCall call : calls) {
             if (!callIds.add(call.getCallId())) {
                 throw new IllegalArgumentException("同一助手回合存在重复工具调用标识: " + call.getCallId());
             }
         }
+        // 整批调用一起计入预算，再把助手工具消息写入活动交换。
         synchronized (stateLock) {
             if (terminal) {
                 return;
@@ -814,6 +920,9 @@ final class DefaultAgentRun implements AgentRun {
                 journal.checkpoint(runId, sessionId, request, sessionVersion, turnNumber + 1, exchange);
             }
         }
+        // 编排工具由运行时接管，普通工具继续走统一 ToolExecutor。
+        // TODO(Agent App)：后续新增编排工具时，应在模型回合创建阶段声明其“单独成批”属性；
+        // 当前 create_plan/create_sub_agent 仍由下方的 calls.size() == 1 约束，运行时校验不能删除。
         if (calls.size() == 1 && "create_plan".equals(calls.get(0).getName()) && planRunner == null
                 && planStepTemplate != null) {
             session.requireActiveLease();
@@ -838,12 +947,11 @@ final class DefaultAgentRun implements AgentRun {
                     return;
                 }
             }
-            /** 由运行时构造的可信工具上下文。 */
+            // 工具上下文来自运行时，模型不能提供 runId、deadline 或取消令牌。
             ToolExecutionContext context = new ToolExecutionContext(runId, sessionId, null, deadline, cancellation);
             session.requireActiveLease();
             journal.toolStarted(runId, call);
-            /** 与调用标识配对的真实或结构化失败结果。 */
-            /** 计划内部的递归调用始终由程序拒绝，即使模型伪造工具名称。 */
+            // 计划内部的递归调用始终由程序拒绝，即使模型伪造工具名称。
             ToolResult result = planRunner != null && "create_plan".equals(call.getName())
                     ? new ToolResult(call.getCallId(), ToolResultStatus.ERROR,
                     "计划步骤不能再创建计划", "POLICY_DENIED", false)
@@ -851,7 +959,7 @@ final class DefaultAgentRun implements AgentRun {
                     ? new ToolResult(call.getCallId(), ToolResultStatus.ERROR,
                     "子 Agent 调用必须单独成批执行", "POLICY_DENIED", false)
                     : toolExecutor.execute(call, context, this::emitToolEvent);
-            /** 当前调用的可信工具声明。 */
+            // 根据可信工具声明判断结果是否可作为恢复检查点复用。
             Tool<?> executedTool = authorizedTools.getAuthorizedTool(call.getName());
             if (result.getStatus() == ToolResultStatus.ERROR
                     && "TOOL_EXECUTION_ERROR".equals(result.getErrorCode())
@@ -862,7 +970,7 @@ final class DefaultAgentRun implements AgentRun {
             }
             journal.toolCompleted(runId, result);
             if (planRunner != null) {
-                /** 可为计划声明语义失败的可信工具。 */
+                // 部分可信工具会在 Java 成功返回时声明业务步骤失败。
                 Object authorizedTool = authorizedTools.getAuthorizedTool(call.getName());
                 if (result.getStatus() == ToolResultStatus.ERROR
                         || (authorizedTool instanceof PlanStepOutcome
@@ -882,7 +990,7 @@ final class DefaultAgentRun implements AgentRun {
                     return;
                 }
                 outputCharacters += result.getContent().length();
-                /** 含单个工具结果的模型消息。 */
+                // 含单个工具结果的模型消息。
                 Message toolMessage = new Message(runId + ":tool:" + turnNumber + ":" + call.getCallId(),
                         Role.TOOL, Collections.emptyList(), Collections.emptyList(),
                         Collections.singletonList(result), Collections.emptyMap());
@@ -909,66 +1017,66 @@ final class DefaultAgentRun implements AgentRun {
             if (depth >= definition.getLimits().getMaxSubAgentDepth()) {
                 throw new IllegalArgumentException("子 Agent 深度达到限制");
             }
-            /** 当前运行已授权的委派描述。 */
+            // 当前运行已授权的委派描述。
             ToolDescriptor<?> descriptor = authorizedTools.getDescriptors().stream()
                     .filter(item -> item.getName().equals("create_sub_agent")
-                            && item.getParameterType() == CreateSubAgentTool.Parameters.class)
+                            && item.getParameterType() == CreateSubAgentParameters.class)
                     .findFirst().orElseThrow(() -> new IllegalArgumentException("子 Agent 工具未获授权"));
-            /** 经 Schema 校验的委派参数。 */
-            CreateSubAgentTool.Parameters parameters =
-                    (CreateSubAgentTool.Parameters) descriptor.parse(call.getArgumentsJson());
-            /** 当前运行实际授权的子工具集合。 */
+            // 经 Schema 校验的委派参数。
+            CreateSubAgentParameters parameters =
+                    (CreateSubAgentParameters) descriptor.parse(call.getArgumentsJson());
+            // 当前运行实际授权的子工具集合。
             ToolRegistry childTools = authorizedTools.select(
                     parameters.toolIds == null ? List.of() : parameters.toolIds);
-            /** 父级留给子级及最终回答的模型回合数。 */
+            // 父级留给子级及最终回答的模型回合数。
             int childTurnLimit = definition.getLimits().getMaxModelTurns() - turnNumber - 1;
-            /** 已计入父级输出后的剩余字符数。 */
+            // 已计入父级输出后的剩余字符数。
             int remainingOutput = definition.getLimits().getMaxOutputCharacters() - (int) outputCharacters;
-            /** 预留给父级结果说明的字符数。 */
+            // 预留给父级结果说明的字符数。
             int parentReserve = Math.min(128, Math.max(1, remainingOutput / 4));
-            /** 子级可使用的工具调用次数。 */
+            // 子级可使用的工具调用次数。
             int childToolLimit = definition.getLimits().getMaxToolCalls() - toolCalls;
-            /** 子级继承的实际剩余时限。 */
+            // 子级继承的实际剩余时限。
             Duration remainingTime = Duration.between(Instant.now(), deadline);
             if (childTurnLimit < 1 || remainingOutput - parentReserve < 1
                     || remainingTime.compareTo(Duration.ofMillis(1)) < 0) {
                 throw new IllegalArgumentException("剩余预算不足以启动子 Agent 并回传结果");
             }
-            /** 仅由父级可信定义缩小而来的子级预算。 */
+            // 仅由父级可信定义缩小而来的子级预算。
             AgentLimits childLimits =
                     new AgentLimits(childTurnLimit, childToolLimit,
                             remainingOutput - parentReserve,
                             definition.getLimits().getEventBufferCapacity(), remainingTime,
                             definition.getLimits().getMaxPlanSteps(),
                             definition.getLimits().getMaxSubAgentDepth());
-            /** 与父会话不同的子运行标识。 */
+            // 与父会话不同的子运行标识。
             String childRunId = UUID.randomUUID().toString();
-            /** 与父会话不同的子会话标识。 */
+            // 与父会话不同的子会话标识。
             String childSessionId = UUID.randomUUID().toString();
-            /** 子定义的内部可信身份。 */
+            // 子定义的内部可信身份。
             String childAgentId = definition.getAgentId() + ":child:" + childRunId;
-            /** 当前委派专用的子 Agent 定义。 */
+            // 当前委派专用的子 Agent 定义。
             AgentDefinition childDefinition = new AgentDefinition(definition.getAppId(), childAgentId,
                     parameters.name, parameters.description, definition.getModelId(),
                     subAgentTemplate.getTemplateId(),
                     parameters.toolIds == null ? List.of() : parameters.toolIds, List.of(), childLimits,
                     definition.getContextPolicy());
-            /** 父级本轮有效模型选项的不可变快照。 */
+            // 父级本轮有效模型选项的不可变快照。
             ModelOptions effectiveOptions = request.getModelOptions().overlay(session.options());
-            /** 子级只接收委派任务和显式上下文。 */
+            // 子级只接收委派任务和显式上下文。
             AgentRequest childRequest = new AgentRequest(request.getOwnerId(), request.getAppId(),
                     childAgentId, null, request.getRequestId() + ":child:" + call.getCallId(),
                     parameters.task, effectiveOptions);
-            /** 子运行专用系统消息。 */
+            // 子运行专用系统消息。
             Message childSystem = subAgentTemplate.toSystemMessage(childRunId + ":system",
                     Map.of("agentName", parameters.name,
                             "agentDescription", parameters.description,
                             "delegatedTask", parameters.task,
                             "delegatedContext", parameters.context == null ? "无" : parameters.context));
-            /** 独立会话不会读写父历史。 */
+            // 独立会话不会读写父历史。
             Session childSession = sessions.create(childSessionId, request.getOwnerId(),
                     request.getAppId(), childAgentId, ModelOptions.empty());
-            /** 使用同一运行时和服务，但状态及授权独立的子运行。 */
+            // 使用同一运行时和服务，但状态及授权独立的子运行。
             DefaultAgentRun child = new DefaultAgentRun(childRunId, childSessionId,
                     childDefinition, childRequest, childSystem, subAgentTemplate, childSession,
                     gateway, childTools,
@@ -978,7 +1086,7 @@ final class DefaultAgentRun implements AgentRun {
                     null, null, null, runId, rootRunId);
             emitToolEvent(new ToolExecutionEvent(call.getCallId(), call.getName(),
                     ToolExecutionPhase.CALLING, null));
-            /** 子级在父取消时终止，完成回调再续接父级模型。 */
+            // 子级在父取消时终止，完成回调再续接父级模型。
             new SubAgentRunner(child, cancellation).start((childResult, error) -> {
                 try {
                     finishSubAgent(call, turnNumber, parameters.name, child, childResult, error);
@@ -1015,7 +1123,7 @@ final class DefaultAgentRun implements AgentRun {
             }
         }
         mergeChildAccounting(child);
-        /** 子结果仅作为当前工具调用的配对内容返回。 */
+        // 子结果仅作为当前工具调用的配对内容返回。
         String content = error != null ? "子 Agent 执行异常\nrunId=" + child.getRunId()
                 + " sessionId=" + child.getSessionId() + "\n" + error.getMessage()
                 : "子 Agent " + name + " [" + childResult.getStatus() + "]\n"
@@ -1023,7 +1131,7 @@ final class DefaultAgentRun implements AgentRun {
                 + (childResult.getStatus() == AgentResultStatus.COMPLETED
                 ? childResult.getFinalText()
                 : childResult.getError().getCode() + ": " + childResult.getError().getMessage());
-        /** 失败或成功均与父调用标识配对。 */
+        // 失败或成功均与父调用标识配对。
         ToolResult toolResult = new ToolResult(call.getCallId(),
                 error == null && childResult.getStatus() == AgentResultStatus.COMPLETED
                         ? ToolResultStatus.SUCCESS : ToolResultStatus.ERROR,
@@ -1068,7 +1176,7 @@ final class DefaultAgentRun implements AgentRun {
                 modelTurnsUsed += child.modelTurnsUsed;
                 toolCalls += child.toolCalls;
                 outputCharacters += child.outputCharacters;
-                /** 子树中每次模型调用的最终用量。 */
+                // 子树中每次模型调用的最终用量。
                 for (Map.Entry<String, ModelTokenUsage> entry : child.usageByModelCallId.entrySet()) {
                     if (usageByModelCallId.putIfAbsent(entry.getKey(), entry.getValue()) == null) {
                         usageTotal = usageTotal == null ? entry.getValue() : usageTotal.plus(entry.getValue());
@@ -1087,22 +1195,22 @@ final class DefaultAgentRun implements AgentRun {
     private void startPlan(ToolCall call, int turnNumber) {
         emitToolEvent(new ToolExecutionEvent(call.getCallId(), call.getName(),
                 ToolExecutionPhase.PREPARING, null));
-        /** 经校验的不可变计划。 */
+        // 经校验的不可变计划。
         Plan plan;
         try {
-            /** 从可信工具快照读取的计划描述。 */
+            // 从可信工具快照读取的计划描述。
             ToolDescriptor<?> descriptor = authorizedTools.getDescriptors().stream()
                     .filter(item -> item.getName().equals("create_plan")
-                            && item.getParameterType() == CreatePlanTool.Parameters.class)
+                            && item.getParameterType() == CreatePlanParameters.class)
                     .findFirst().orElseThrow(() -> new IllegalArgumentException("计划工具未获授权"));
-            /** 经 Schema 严格校验的模型参数。 */
-            CreatePlanTool.Parameters parameters = (CreatePlanTool.Parameters) descriptor.parse(call.getArgumentsJson());
-            /** 已校验并受可信上限约束的计划。 */
+            // 经 Schema 严格校验的模型参数。
+            CreatePlanParameters parameters = (CreatePlanParameters) descriptor.parse(call.getArgumentsJson());
+            // 已校验并受可信上限约束的计划。
             plan = new Plan(parameters.name, parameters.description, parameters.steps,
-                    parameters.failurePolicy == null ? Plan.FailurePolicy.STOP : parameters.failurePolicy,
+                    parameters.failurePolicy == null ? PlanFailurePolicy.STOP : parameters.failurePolicy,
                     definition.getLimits().getMaxPlanSteps());
         } catch (IllegalArgumentException exception) {
-            /** 与失败调用配对的校验结果。 */
+            // 与失败调用配对的校验结果。
             ToolResult result = new ToolResult(call.getCallId(), ToolResultStatus.ERROR,
                     exception.getMessage(), "TOOL_VALIDATION_ERROR", false);
             journal.toolCompleted(runId, result);
@@ -1135,34 +1243,35 @@ final class DefaultAgentRun implements AgentRun {
         if (planStepTemplate == null || recovery == null || planRecovery == null) {
             throw new IllegalStateException("NEEDS_REVIEW: 计划恢复输入不完整");
         }
-        /** 当前授权的计划参数描述。 */
+        // 当前授权的计划参数描述。
         ToolDescriptor<?> descriptor = authorizedTools.getDescriptors().stream()
                 .filter(item -> item.getName().equals("create_plan")
-                        && item.getParameterType() == CreatePlanTool.Parameters.class)
+                        && item.getParameterType() == CreatePlanParameters.class)
                 .findFirst().orElseThrow(() -> new IllegalStateException("NEEDS_REVIEW: 计划工具不再获授权"));
-        /** 原计划参数，在当前可信上限内重新校验。 */
-        CreatePlanTool.Parameters parameters = (CreatePlanTool.Parameters) descriptor.parse(
-                planRecovery.call().getArgumentsJson());
-        /** 重新绑定当前可信步骤上限的计划定义。 */
+        // 原计划参数，在当前可信上限内重新校验。
+        CreatePlanParameters parameters = (CreatePlanParameters) descriptor.parse(
+                planRecovery.getCall().getArgumentsJson());
+        // 重新绑定当前可信步骤上限的计划定义。
         Plan plan = new Plan(parameters.name, parameters.description, parameters.steps,
-                parameters.failurePolicy == null ? Plan.FailurePolicy.STOP : parameters.failurePolicy,
+                parameters.failurePolicy == null ? PlanFailurePolicy.STOP : parameters.failurePolicy,
                 definition.getLimits().getMaxPlanSteps());
         synchronized (stateLock) {
-            planRunner = PlanRunner.restore(plan, planRecovery.statuses(), planRecovery.results());
-            planCall = planRecovery.call();
+            planRunner = PlanRunner.restore(plan, planRecovery.getStatuses(), planRecovery.getResults());
+            planCall = planRecovery.getCall();
             parentMessages = messages;
             parentExchange = exchange;
             planBaseMessages = new ArrayList<>(messages.subList(0, messages.size() - 1));
             planTranscript.clear();
             journal.toolStarted(runId, planCall);
             emitPlanLocked(AgentEventType.PLAN_CREATED, 0, null, plan.getDescription());
-            /** 已完成步骤的结果由数据库复制到新运行的计划记录。 */
-            for (int index = 0; index < planRecovery.statuses().size(); index++) {
-                /** 原步骤状态。 */
-                PlanStepStatus status = planRecovery.statuses().get(index);
+            // 已完成步骤的结果由数据库复制到新运行的计划记录。
+            for (int index = 0; index < planRecovery.getStatuses().size(); index++) {
+                // 原步骤状态。
+                PlanStepStatus status = planRecovery.getStatuses().get(index);
                 if (status != PlanStepStatus.PENDING) {
                     emitPlanLocked(AgentEventType.PLAN_STEP_FINISHED, index + 1, status,
-                            planRecovery.results().get(index) == null ? "已跳过" : planRecovery.results().get(index));
+                            planRecovery.getResults().get(index) == null
+                                    ? "已跳过" : planRecovery.getResults().get(index));
                 }
             }
         }
@@ -1174,13 +1283,13 @@ final class DefaultAgentRun implements AgentRun {
      * @param turnNumber 上一个模型回合数
      */
     private void advancePlan(int turnNumber) {
-        /** 计划中的下一步骤。 */
+        // 计划中的下一步骤。
         PlanStep step = planRunner.startNext();
         if (step == null) {
             finishPlan(turnNumber);
             return;
         }
-        /** 模板中只放当前步骤的受控执行说明。 */
+        // 模板中只放当前步骤的受控执行说明。
         Message stepSystem = planStepTemplate.toSystemMessage(runId + ":plan:system:" + step.getNumber(),
                 Map.of("planGoal", planRunner.getPlan().getDescription(),
                         "stepNumber", Integer.toString(step.getNumber()),
@@ -1218,11 +1327,11 @@ final class DefaultAgentRun implements AgentRun {
             if (terminal) return;
             messages.add(assistant);
             planTranscript.addAll(messages.subList(stepTranscriptStart, messages.size()));
-            /** 带实际工具产物的步骤报告。 */
+            // 带实际工具产物的步骤报告。
             String report = stepReport(finalText, messages.subList(stepTranscriptStart, messages.size()));
-            /** 任何工具错误都使当前步骤保守地标记为失败。 */
+            // 任何工具错误都使当前步骤保守地标记为失败。
             PlanStepStatus status = stepHadToolError ? PlanStepStatus.FAILED : PlanStepStatus.SUCCEEDED;
-            /** 完成前的步骤序号，停止策略可能移动运行器游标。 */
+            // 完成前的步骤序号，停止策略可能移动运行器游标。
             int stepNumber = planRunner.currentStep().getNumber();
             planRunner.finishCurrent(status, report);
             emitPlanLocked(AgentEventType.PLAN_STEP_FINISHED, stepNumber, status, report);
@@ -1237,7 +1346,7 @@ final class DefaultAgentRun implements AgentRun {
      * @param error 模型错误
      * @param turnNumber 当前全局模型回合数
      */
-    private void handleModelFailure(String code, Throwable error, int turnNumber) {
+     void handleModelFailure(String code, Throwable error, int turnNumber) {
         synchronized (stateLock) {
             if (terminal) return;
             if ("PERSISTENCE_ERROR".equals(code)) {
@@ -1248,10 +1357,10 @@ final class DefaultAgentRun implements AgentRun {
                 fail(code, error);
                 return;
             }
-            /** 可传给后续步骤的真实错误说明。 */
+            // 可传给后续步骤的真实错误说明。
             String detail = stepReport(code + ": " + error.getMessage(),
                     messages.subList(stepTranscriptStart, messages.size()));
-            /** 完成前的步骤序号，停止策略可能移动运行器游标。 */
+            // 完成前的步骤序号，停止策略可能移动运行器游标。
             int stepNumber = planRunner.currentStep().getNumber();
             planRunner.finishCurrent(PlanStepStatus.FAILED, detail);
             emitPlanLocked(AgentEventType.PLAN_STEP_FINISHED, stepNumber, PlanStepStatus.FAILED, detail);
@@ -1265,15 +1374,15 @@ final class DefaultAgentRun implements AgentRun {
      * @param turnNumber 最近完成的全局模型回合数
      */
     private void finishPlan(int turnNumber) {
-        /** 程序生成的完整计划报告。 */
+        // 程序生成的完整计划报告。
         String summary = planRunner.summary();
-        /** 计划是否全部成功。 */
+        // 计划是否全部成功。
         boolean succeeded = planRunner.succeeded();
         synchronized (stateLock) {
             if (terminal) return;
-            /** 停止策略跳过的步骤也产生明确进度事件。 */
+            // 停止策略跳过的步骤也产生明确进度事件。
             List<PlanStepStatus> statuses = planRunner.statuses();
-            /** 待发布跳过事件的步骤索引。 */
+            // 待发布跳过事件的步骤索引。
             for (int index = 0; index < statuses.size(); index++) {
                 if (statuses.get(index) == PlanStepStatus.SKIPPED) {
                     emitPlanLocked(AgentEventType.PLAN_STEP_FINISHED, index + 1,
@@ -1289,7 +1398,7 @@ final class DefaultAgentRun implements AgentRun {
             exchange = parentExchange;
             planRunner = null;
         }
-        /** 与计划工具调用配对的真实状态。 */
+        // 与计划工具调用配对的真实状态。
         ToolResult result = new ToolResult(planCall.getCallId(),
                 succeeded ? ToolResultStatus.SUCCESS : ToolResultStatus.ERROR,
                 summary, succeeded ? null : "PLAN_FAILED", false);
@@ -1309,11 +1418,11 @@ final class DefaultAgentRun implements AgentRun {
      * @return 含工具产物与失败码的步骤报告
      */
     private static String stepReport(String finalText, List<Message> transcript) {
-        /** 附有工具结果的步骤报告。 */
+        // 附有工具结果的步骤报告。
         StringBuilder report = new StringBuilder(finalText);
-        /** 步骤中产生的模型消息。 */
+        // 步骤中产生的模型消息。
         for (Message message : transcript) {
-            /** 当前模型消息的真实工具结果。 */
+            // 当前模型消息的真实工具结果。
             for (ToolResult result : message.getToolResults()) {
                 report.append("\n工具 ").append(result.getCallId()).append(" [")
                         .append(result.getStatus()).append("]: ").append(result.getContent());
@@ -1336,7 +1445,7 @@ final class DefaultAgentRun implements AgentRun {
                 return;
             }
             outputCharacters += result.getContent().length();
-            /** 和编排调用配对的工具消息。 */
+            // 和编排调用配对的工具消息。
             Message toolMessage = new Message(runId + ":orchestration:tool:" + result.getCallId(), Role.TOOL,
                     Collections.emptyList(), Collections.emptyList(), Collections.singletonList(result),
                     Collections.emptyMap());
@@ -1356,7 +1465,7 @@ final class DefaultAgentRun implements AgentRun {
      * @param detail 任务说明或真实结果
      */
     private void emitPlanLocked(AgentEventType type, int stepNumber, PlanStepStatus status, String detail) {
-        /** 当前计划事件。 */
+        // 当前计划事件。
         AgentEvent event = new AgentEvent(runId, sessionId, ++eventSequence, Instant.now(), type,
                 null, null, null, null, new PlanEvent(planRunner.getPlan().getName(), stepNumber,
                 planRunner.getPlan().getSteps().size(), status, detail));
@@ -1372,7 +1481,7 @@ final class DefaultAgentRun implements AgentRun {
      * @param reason 正常结束原因
      */
     private void finishSuccess(Message assistant, String finalText, ModelFinishReason reason) {
-        /** 唯一成功结果。 */
+        // 结果对象在锁内创建，锁外只负责通知观察者和完成 Future。
         AgentResult result;
         synchronized (stateLock) {
             if (terminal) {
@@ -1419,6 +1528,11 @@ final class DefaultAgentRun implements AgentRun {
     private void emitToolEvent(ToolExecutionEvent toolEvent) {
         synchronized (stateLock) {
             if (!terminal) {
+                try {
+                    audit.onEvent(toolEvent);
+                } catch (RuntimeException ignored) {
+                    // 审计观察者不能改变工具执行结果。
+                }
                 emitLocked(AgentEventType.TOOL_EXECUTION, null, null, toolEvent, null);
             }
         }
@@ -1427,7 +1541,7 @@ final class DefaultAgentRun implements AgentRun {
     /**
      * 对超时触发唯一终态。
      */
-    private void timeout() {
+     void timeout() {
         stop(AgentResultStatus.TIMED_OUT, AgentEventType.TIMED_OUT, "TIMEOUT", "运行超过全局截止时间", null);
     }
 
@@ -1437,7 +1551,7 @@ final class DefaultAgentRun implements AgentRun {
      * @param message 超限说明
      * @param reason 最近的模型结束原因
      */
-    private void limitExceeded(String message, ModelFinishReason reason) {
+     void limitExceeded(String message, ModelFinishReason reason) {
         stop(AgentResultStatus.LIMIT_EXCEEDED, AgentEventType.LIMIT_EXCEEDED, "LIMIT_EXCEEDED", message, reason);
     }
 
@@ -1446,7 +1560,7 @@ final class DefaultAgentRun implements AgentRun {
      *
      * @param error 控制异常
      */
-    private void stopForControl(ExecutionControlException error) {
+     void stopForControl(ExecutionControlException error) {
         if ("TIMEOUT".equals(error.getCode())) {
             timeout();
         } else if ("LIMIT_EXCEEDED".equals(error.getCode())) {
@@ -1465,7 +1579,7 @@ final class DefaultAgentRun implements AgentRun {
      * @param error 原因
      */
     private void fail(String code, Throwable error) {
-        /** 无异常消息时使用类名。 */
+        // 异常没有可读消息时使用类型名，保证失败结果始终可诊断。
         String message = StringUtils.isBlank(error.getMessage())
                 ? error.getClass().getSimpleName() : error.getMessage();
         stop(AgentResultStatus.FAILED, AgentEventType.FAILED, code, message, null);
@@ -1495,7 +1609,7 @@ final class DefaultAgentRun implements AgentRun {
      */
     private void stop(AgentResultStatus status, AgentEventType type, String code,
                       String message, ModelFinishReason reason) {
-        /** 唯一停止结果。 */
+        // 所有取消、超时、限额和失败路径都在这里竞争唯一终态。
         AgentResult result;
         synchronized (stateLock) {
             if (terminal) {
@@ -1537,6 +1651,11 @@ final class DefaultAgentRun implements AgentRun {
      * @param interruptResources 是否停止阻塞资源
      */
     private void close(AgentResult result, boolean interruptResources) {
+        try {
+            audit.finished(result);
+        } catch (RuntimeException ignored) {
+            // 审计故障不能影响终态交付。
+        }
         eventPublisher.complete();
         completion.complete(result);
         if (interruptResources) {
@@ -1553,9 +1672,9 @@ final class DefaultAgentRun implements AgentRun {
      * @param toolEvent 工具阶段
      * @param usage 单轮用量
      */
-    private void emitLocked(AgentEventType type, String text, AgentResult result,
+     void emitLocked(AgentEventType type, String text, AgentResult result,
                             ToolExecutionEvent toolEvent, ModelTokenUsage usage) {
-        /** 当前有序事件。 */
+        // 序号在状态锁内递增，确保同一运行的事件顺序稳定。
         AgentEvent event = new AgentEvent(runId, sessionId, ++eventSequence, Instant.now(),
                 type, text, result, toolEvent, usage);
         if (journalStarted) {
@@ -1574,7 +1693,7 @@ final class DefaultAgentRun implements AgentRun {
      *
      * @return 已过期时为 true
      */
-    private boolean deadlineReached() {
+     boolean deadlineReached() {
         return deadline != null && !Instant.now().isBefore(deadline);
     }
 
@@ -1585,7 +1704,7 @@ final class DefaultAgentRun implements AgentRun {
      * @return UTF-16 字符数
      */
     private static long countContent(Message assistant) {
-        /** 完整模型输出大小。 */
+        // 完整模型输出大小。
         long count = 0;
         for (ContentBlock block : assistant.getContentBlocks()) {
             if (!(block instanceof TextContentBlock)) {
@@ -1606,7 +1725,7 @@ final class DefaultAgentRun implements AgentRun {
      * @return 完整回答
      */
     private static String getText(Message message) {
-        /** 依次拼接内容块的最终文本。 */
+        // 依次拼接内容块的最终文本。
         StringBuilder text = new StringBuilder();
         for (ContentBlock block : message.getContentBlocks()) {
             text.append(((TextContentBlock) block).getText());
@@ -1638,7 +1757,7 @@ final class DefaultAgentRun implements AgentRun {
      * @return 含附件的协议中立消息
      */
     private static Message userMessage(String messageId, AgentRequest request) {
-        /** 本轮用户内容块。 */
+        // 本轮用户内容块。
         List<ContentBlock> blocks = new ArrayList<>();
         blocks.add(new TextContentBlock(request.getUserText()));
         blocks.addAll(request.getAttachments());
@@ -1646,87 +1765,4 @@ final class DefaultAgentRun implements AgentRun {
                 Collections.emptyList(), Collections.emptyMap());
     }
 
-    /**
-     * 隔离单个模型回合的完整消息、增量与唯一回调终态。
-     */
-    private final class RoundListener implements ModelEventListener {
-        /** 当前回合编号。 */
-        private final int turnNumber;
-        /** 本回合最终完整结果。 */
-        private ModelTurn turn;
-        /** 本回合已经发布的模型字符数。 */
-        private long streamedCharacters;
-
-        /**
-         * 创建本轮监听器。
-         *
-         * @param turnNumber 从一开始的回合编号
-         */
-        private RoundListener(int turnNumber) {
-            this.turnNumber = turnNumber;
-        }
-
-        /**
-         * 接纳一次模型增量；完成回合在 onComplete 后才处理。
-         *
-         * @param event 模型事件
-         */
-        @Override
-        public void onEvent(ModelEvent event) {
-            synchronized (stateLock) {
-                if (terminal) {
-                    return;
-                }
-                if (deadlineReached()) {
-                    timeout();
-                    return;
-                }
-                if (event instanceof TextDelta || event instanceof ReasoningDelta) {
-                    /** 当前增量的文本。 */
-                    String text = event instanceof TextDelta ? ((TextDelta) event).getText()
-                            : ((ReasoningDelta) event).getText();
-                    if (outputCharacters + streamedCharacters + text.length()
-                            > definition.getLimits().getMaxOutputCharacters()) {
-                        limitExceeded("模型输出达到字符上限", null);
-                        return;
-                    }
-                    streamedCharacters += text.length();
-                    emitLocked(event instanceof TextDelta ? AgentEventType.TEXT_DELTA
-                            : AgentEventType.REASONING_DELTA, text, null, null, null);
-                } else if (event instanceof TurnCompleted) {
-                    turn = ((TurnCompleted) event).getTurn();
-                } else if (!(event instanceof UsageReported)) {
-                    throw new IllegalArgumentException("当前 Agent 阶段不支持该模型事件");
-                }
-            }
-        }
-
-        /**
-         * 模型调用失败时尝试取得运行的失败终态。
-         *
-         * @param error 模型错误
-         */
-        @Override
-        public void onError(Throwable error) {
-            if (error instanceof ExecutionControlException) {
-                stopForControl((ExecutionControlException) error);
-            } else if (error instanceof ModelGatewayException) {
-                handleModelFailure(((ModelGatewayException) error).getCode(), error, turnNumber);
-            } else {
-                handleModelFailure("MODEL_FAILURE", error, turnNumber);
-            }
-        }
-
-        /**
-         * 在模型回调线程外处理工具或最终提交。
-         */
-        @Override
-        public void onComplete() {
-            try {
-                executor.execute(() -> completeRound(turn, turnNumber, streamedCharacters));
-            } catch (RuntimeException exception) {
-                handleModelFailure("PREPARATION_FAILURE", exception, turnNumber);
-            }
-        }
-    }
 }

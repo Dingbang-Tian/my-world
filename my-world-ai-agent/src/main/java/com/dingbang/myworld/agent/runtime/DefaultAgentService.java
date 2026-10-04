@@ -1,5 +1,11 @@
 package com.dingbang.myworld.agent.runtime;
 
+import com.dingbang.myworld.agent.orchestration.CreatePlanParameters;
+import com.dingbang.myworld.agent.orchestration.CreateSubAgentParameters;
+import com.dingbang.myworld.agent.persistence.PlanRecovery;
+import com.dingbang.myworld.agent.persistence.RecoveryCheckpoint;
+import com.dingbang.myworld.agent.persistence.RecoveryRunRecord;
+
 import com.dingbang.myworld.agent.api.AgentDefinition;
 import com.dingbang.myworld.agent.api.AgentRequest;
 import com.dingbang.myworld.agent.api.AgentRecoveryService;
@@ -10,8 +16,6 @@ import com.dingbang.myworld.agent.prompt.PromptRepository;
 import com.dingbang.myworld.agent.persistence.RunJournal;
 import com.dingbang.myworld.agent.persistence.RecoveryJournal;
 import com.dingbang.myworld.agent.prompt.PromptTemplateSnapshot;
-import com.dingbang.myworld.agent.orchestration.CreatePlanTool;
-import com.dingbang.myworld.agent.orchestration.CreateSubAgentTool;
 import com.dingbang.myworld.agent.session.AgentSessionService;
 import com.dingbang.myworld.agent.session.InMemorySessionRepository;
 import com.dingbang.myworld.agent.session.ImportedSession;
@@ -23,6 +27,7 @@ import com.dingbang.myworld.agent.skill.AgentSkill;
 import com.dingbang.myworld.agent.tool.ToolRegistry;
 import com.dingbang.myworld.aiframework.api.ModelGateway;
 import com.dingbang.myworld.aiframework.api.ModelOptions;
+import com.dingbang.myworld.aiframework.api.SafeModelDebugGateway;
 import com.dingbang.myworld.aiframework.model.Message;
 import com.dingbang.myworld.common.utils.collection.CollectionUtils;
 
@@ -81,10 +86,14 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
      */
     private final SessionRepository sessions;
 
-    /** 运行、事件和工具检查点记录器。 */
+    /**
+     * 运行、事件和工具检查点记录器。
+     */
     private final RunJournal journal;
 
-    /** 会话 JSON 编解码器。 */
+    /**
+     * 会话 JSON 编解码器。
+     */
     private final SessionExportCodec sessionCodec = new SessionExportCodec();
 
     /**
@@ -165,14 +174,14 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
                                Collection<AgentDefinition> definitions, ToolRegistry tools,
                                Collection<AgentSkill> skills, Executor executor, SessionRepository sessions,
                                RunJournal journal) {
-        this.gateway = Objects.requireNonNull(gateway, "模型入口不能为 null");
+        this.gateway = SafeModelDebugGateway.whenEnabled(Objects.requireNonNull(gateway, "模型入口不能为 null"));
         this.prompts = Objects.requireNonNull(prompts, "提示词仓库不能为 null");
         this.executor = Objects.requireNonNull(executor, "模型执行器不能为 null");
         this.tools = Objects.requireNonNull(tools, "工具注册表不能为 null");
         this.sessions = Objects.requireNonNull(sessions, "会话仓库不能为 null");
         this.journal = Objects.requireNonNull(journal, "运行日志不能为 null");
         Objects.requireNonNull(skills, "技能集合不能为 null");
-        /** 技能索引。 */
+        // 技能索引。
         Map<String, AgentSkill> indexedSkills = new LinkedHashMap<>();
         for (AgentSkill skill : skills) {
             Objects.requireNonNull(skill, "技能不能为 null");
@@ -188,6 +197,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
         Map<String, Map<String, AgentDefinition>> byApp = new LinkedHashMap<>();
         for (AgentDefinition definition : definitions) {
             Objects.requireNonNull(definition, "Agent 定义不能为 null");
+            // 当前应用内按 Agent 标识索引的可信定义。
             Map<String, AgentDefinition> byAgent = byApp.computeIfAbsent(
                     definition.getAppId(), ignored -> new LinkedHashMap<>());
             if (byAgent.putIfAbsent(definition.getAgentId(), definition) != null) {
@@ -224,8 +234,8 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
      * @return 尚未执行的运行
      */
     private AgentRun prepare(AgentRequest request, String resumedFromRunId,
-                             RecoveryJournal.RecoveryCheckpoint recovery,
-                             RecoveryJournal.PlanRecovery planRecovery) {
+                             RecoveryCheckpoint recovery,
+                             PlanRecovery planRecovery) {
         Objects.requireNonNull(request, "Agent 请求不能为 null");
         // prepare 只固定本轮输入和会话，不会调用 ModelGateway。
         // 从可信定义集合解析身份，用户请求不能自行指定模型或模板。
@@ -240,12 +250,12 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
 
         // 当前 run 固定模板内容和 hash，运行期间的配置变化不会影响它。
         PromptTemplateSnapshot template = prompts.get(definition.getPromptTemplateId());
-        /** 直接工具和技能工具去重后的可信授权名称。 */
+        // 合并直接工具和技能工具，名称集合同时负责去重。
         LinkedHashSet<String> authorizedNames = new LinkedHashSet<>(definition.getToolIds());
-        /** 技能说明，按照定义顺序加入系统模板。 */
+        // 技能说明只进入提示词，真正的执行权限仍由 ToolRegistry 控制。
         List<String> instructions = new ArrayList<>();
         for (String skillId : new LinkedHashSet<>(definition.getSkillIds())) {
-            /** 当前启用的技能。 */
+            // 每个技能必须已经由可信应用配置注册。
             AgentSkill skill = skills.get(skillId);
             if (skill == null) {
                 throw new IllegalArgumentException("未知技能: " + skillId);
@@ -253,30 +263,31 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
             authorizedNames.addAll(skill.getToolIds());
             instructions.add(skill.getInstructions());
         }
-        /** 运行级工具授权快照。 */
+        // 固定运行级工具快照，后续注册表变化不会扩大本次权限。
         ToolRegistry selectedTools = tools.select(authorizedNames);
-        /** 仅对已授权计划工具固定步骤提示词快照。 */
+        // 只有授权计划工具时才加载步骤提示词。
         PromptTemplateSnapshot planStepTemplate = selectedTools.getDescriptors().stream()
                 .anyMatch(descriptor -> descriptor.getName().equals("create_plan")
-                        && descriptor.getParameterType() == CreatePlanTool.Parameters.class)
+                        && descriptor.getParameterType() == CreatePlanParameters.class)
                 ? prompts.get("agent/plan-step") : null;
         if (planRecovery != null && planStepTemplate == null) {
             throw new IllegalStateException("NEEDS_REVIEW: 当前 Agent 已不再授权计划工具");
         }
-        /** 仅对已授权子 Agent 工具固定委派模板快照。 */
+        // 只有授权子 Agent 工具时才加载委派提示词。
         PromptTemplateSnapshot subAgentTemplate = selectedTools.getDescriptors().stream()
                 .anyMatch(descriptor -> descriptor.getName().equals("create_sub_agent")
-                        && descriptor.getParameterType() == CreateSubAgentTool.Parameters.class)
+                        && descriptor.getParameterType() == CreateSubAgentParameters.class)
                 ? prompts.get("agent/sub-agent") : null;
-        /** 当前运行固定的摘要提示词快照。 */
+        // 摘要模板同样在 prepare 阶段冻结。
         PromptTemplateSnapshot summaryTemplate = prompts.get("agent/summary");
-        /** 当前运行的系统模板变量。 */
+        // 可信运行信息和技能说明在这里进入 SYSTEM 消息。
         Map<String, String> variables = promptVariables(definition, request, sessionId, runId,
                 instructions);
+        // 由可信模板和运行信息生成的系统消息。
         Message system = template.toSystemMessage(runId + ":system", variables);
 
         // 新会话在此登记；既有会话则校验它属于当前应用和 Agent。
-        /** 已校验归属的会话。 */
+        // sessionFor 同时完成新建或既有会话的归属校验。
         Session session = sessionFor(request, sessionId);
         return new DefaultAgentRun(runId, sessionId, definition, request, system, template, session, gateway,
                 selectedTools, planStepTemplate, subAgentTemplate, summaryTemplate, sessions, journal,
@@ -298,22 +309,22 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
         if (!(journal instanceof RecoveryJournal recoveryJournal)) {
             throw new IllegalStateException("RESUME_REQUIRES_PERSISTENCE");
         }
-        /** 原运行的可信归属与恢复状态。 */
-        RecoveryJournal.RunRecord previous = recoveryJournal.find(priorRunId, ownerId, appId);
+        // 先按 owner/app 查询，避免只凭 runId 跨边界恢复。
+        RecoveryRunRecord previous = recoveryJournal.find(priorRunId, ownerId, appId);
         if (previous == null) throw new IllegalArgumentException("未知的运行标识或归属不匹配");
-        if (previous.status() != com.dingbang.myworld.agent.api.AgentResultStatus.INTERRUPTED) {
+        if (previous.getStatus() != com.dingbang.myworld.agent.api.AgentResultStatus.INTERRUPTED) {
             throw new IllegalStateException("RUN_NOT_RESUMABLE");
         }
-        /** 已确认结果构成的安全模型续接边界。 */
-        RecoveryJournal.RecoveryCheckpoint recovery = recoveryJournal.recoveryCheckpoint(priorRunId);
-        /** 可复用的已完成计划步骤。 */
-        RecoveryJournal.PlanRecovery planRecovery = recoveryJournal.planRecovery(priorRunId);
-        if (previous.hasAttachments() || (recoveryJournal.hasToolExecutions(priorRunId) && recovery == null)
+        // 工具结果只有已经持久化为确定结果时才能进入恢复上下文。
+        RecoveryCheckpoint recovery = recoveryJournal.recoveryCheckpoint(priorRunId);
+        // 计划恢复只复用已完成步骤，运行中的步骤仍需人工核查。
+        PlanRecovery planRecovery = recoveryJournal.planRecovery(priorRunId);
+        if (previous.isHasAttachments() || (recoveryJournal.hasToolExecutions(priorRunId) && recovery == null)
                 || (planRecovery != null && recovery == null)) {
             throw new IllegalStateException("NEEDS_REVIEW");
         }
-        return prepare(new AgentRequest(ownerId, appId, previous.agentId(), previous.sessionId(),
-                newRequestId, previous.userText(), ModelOptions.empty()), priorRunId, recovery, planRecovery);
+        return prepare(new AgentRequest(ownerId, appId, previous.getAgentId(), previous.getSessionId(),
+                newRequestId, previous.getUserText(), ModelOptions.empty()), priorRunId, recovery, planRecovery);
     }
 
     /**
@@ -346,7 +357,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
                     request.getAgentId(), ModelOptions.empty());
         }
         // 既有会话必须先存在，再检查其归属，不能只凭 sessionId 直接访问。
-        /** 仓库中的既有会话。 */
+        // 仓库返回后仍需执行 owner/app/agent 三重校验。
         Session session = sessions.find(sessionId);
         if (session == null) {
             throw new IllegalArgumentException("未知的会话标识");
@@ -368,7 +379,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
     public String createSession(String ownerId, String appId, String agentId, ModelOptions options) {
         requireDefinition(appId, agentId);
         if (ownerId == null || ownerId.isBlank()) throw new IllegalArgumentException("所有者不能为空");
-        /** 新会话标识。 */
+        // 会话标识由服务端生成，调用方只提供归属信息。
         String sessionId = UUID.randomUUID().toString();
         sessions.create(sessionId, ownerId, appId, agentId, Objects.requireNonNull(options));
         return sessionId;
@@ -399,7 +410,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
      */
     @Override
     public String exportSession(String ownerId, String appId, String agentId, String sessionId) {
-        /** 已授权会话。 */
+        // 导出期间独占会话，防止历史在编码过程中发生变化。
         Session session = ownedSession(ownerId, appId, agentId, sessionId);
         if (!session.tryStart()) throw new IllegalStateException("SESSION_BUSY");
         try {
@@ -421,7 +432,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
     @Override
     public String importSession(String ownerId, String appId, String agentId, String serialized) {
         requireDefinition(appId, agentId);
-        /** 已验证格式与完整性的导入数据。 */
+        // 解码器先校验结构和消息配对，再进行当前租户归属检查。
         ImportedSession data = sessionCodec.decode(serialized);
         if (!data.getOwnerId().equals(ownerId) || !data.getAppId().equals(appId)
                 || !data.getAgentId().equals(agentId)) {
@@ -454,7 +465,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
      * @return 已授权会话
      */
     private Session ownedSession(String ownerId, String appId, String agentId, String sessionId) {
-        /** 仓库中的会话。 */
+        // 仓库中的会话。
         Session session = sessions.find(sessionId);
         if (session == null) throw new IllegalArgumentException("未知的会话标识");
         session.requireOwner(ownerId, appId, agentId);
@@ -473,6 +484,7 @@ public final class DefaultAgentService implements AgentService, AgentSessionServ
      */
     private Map<String, String> promptVariables(AgentDefinition definition, AgentRequest request,
                                                  String sessionId, String runId, List<String> instructions) {
+        // 仅由服务端定义和运行上下文填充的系统模板变量。
         Map<String, String> variables = new LinkedHashMap<>();
         // 这里的全部变量来自服务端定义或运行上下文，用户文本不允许替换 SYSTEM 模板。
         // Agent 身份来自服务端定义，作为 SYSTEM 模板的可信输入。

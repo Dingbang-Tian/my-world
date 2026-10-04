@@ -1,5 +1,7 @@
 package com.dingbang.myworld.agent.runtime;
 
+import com.dingbang.myworld.aiframework.protocol.MultiProtocolType;
+
 import com.dingbang.myworld.agent.api.AgentDefinition;
 import com.dingbang.myworld.agent.api.AgentRequest;
 import com.dingbang.myworld.agent.api.AgentResultStatus;
@@ -34,7 +36,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * @since 2026/10/03
  */
 class MultiProtocolAgentIntegrationTest {
-    /** JSON 测试解析器。 */
+    /**
+     * JSON 测试解析器。
+     */
     private final ObjectMapper mapper = new ObjectMapper();
 
     /**
@@ -44,11 +48,11 @@ class MultiProtocolAgentIntegrationTest {
      */
     @Test
     void bothProtocolsExecuteSameAgentToolLoop() throws Exception {
-        /** Responses 请求序列。 */
+        // Responses 请求序列。
         List<JsonNode> responseRequests = new ArrayList<>();
-        /** Anthropic 请求序列。 */
+        // Anthropic 请求序列。
         List<JsonNode> anthropicRequests = new ArrayList<>();
-        /** 本地协议服务。 */
+        // 本地协议服务。
         HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/responses", exchange -> {
             responseRequests.add(mapper.readTree(exchange.getRequestBody().readAllBytes()));
@@ -72,17 +76,17 @@ class MultiProtocolAgentIntegrationTest {
         });
         server.start();
         try {
-            /** 测试服务地址。 */
+            // 测试服务地址。
             String base = "http://127.0.0.1:" + server.getAddress().getPort();
-            /** 两个实际协议适配器。 */
+            // 两个实际协议适配器。
             MultiProtocolGateway gateway = new MultiProtocolGateway(List.of(
-                    new MultiProtocolModelConfig("responses", MultiProtocolModelConfig.Protocol.RESPONSES,
+                    new MultiProtocolModelConfig("responses", MultiProtocolType.RESPONSES,
                             URI.create(base + "/responses"), "wire-r", "key", ModelOptions.empty(), false, false, false),
-                    new MultiProtocolModelConfig("anthropic", MultiProtocolModelConfig.Protocol.ANTHROPIC,
+                    new MultiProtocolModelConfig("anthropic", MultiProtocolType.ANTHROPIC,
                             URI.create(base + "/anthropic"), "wire-a", "key", ModelOptions.empty(), false, false, false)));
-            /** 可复用的加法 Java 工具。 */
-            OpenAiChatAgentIntegrationTest.AddTool tool = new OpenAiChatAgentIntegrationTest.AddTool();
-            /** 同一个服务内的两个 Agent 定义，仅模型 ID 不同。 */
+            // 可复用的加法 Java 工具。
+            OpenAiChatAgentIntegrationTestAddTool tool = new OpenAiChatAgentIntegrationTestAddTool();
+            // 同一个服务内的两个 Agent 定义，仅模型 ID 不同。
             DefaultAgentService service = new DefaultAgentService(new RoutedModelGateway(Map.of(
                     "responses", gateway, "anthropic", gateway)),
                     new PromptTemplateRegistry(new DefaultResourceLoader(), Map.of(), Map.of()),
@@ -128,7 +132,7 @@ class MultiProtocolAgentIntegrationTest {
      * @throws IOException 输出失败时
      */
     private static void respond(HttpExchange exchange, String body) throws IOException {
-        /** UTF-8 响应字节。 */
+        // UTF-8 响应字节。
         byte[] bytes = body.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/event-stream");
         exchange.sendResponseHeaders(200, bytes.length);

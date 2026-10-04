@@ -10,9 +10,13 @@ import lombok.Data;
  */
 @Data
 public final class MemorySummary {
-    /** 摘要文本。 */
+    /**
+     * 摘要文本。
+     */
     private final String text;
-    /** 从历史开头起已覆盖的消息数量，必须落在交换边界。 */
+    /**
+     * 从历史开头起已覆盖的消息数量，必须落在交换边界。
+     */
     private final int coveredMessageCount;
 
     /**

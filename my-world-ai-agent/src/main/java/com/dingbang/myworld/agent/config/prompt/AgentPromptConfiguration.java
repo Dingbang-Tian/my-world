@@ -43,7 +43,9 @@ public class AgentPromptConfiguration {
         Map<String, PromptTemplateSpec> project = new LinkedHashMap<>();
         if (properties.getPrompts() != null) {
             for (Map.Entry<String, PromptTemplateSpec> entry : properties.getPrompts().entrySet()) {
-                project.put("agent/" + entry.getKey(), entry.getValue());
+                // 保留 agent/system 这种简写，同时允许应用覆盖 codegen/system 等完整模板标识。
+                project.put(entry.getKey().contains("/")
+                        ? entry.getKey() : "agent/" + entry.getKey(), entry.getValue());
             }
         }
         return new PromptTemplateRegistry(resourceLoader, application, project);

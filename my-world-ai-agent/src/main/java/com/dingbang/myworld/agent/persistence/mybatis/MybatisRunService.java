@@ -1,5 +1,10 @@
 package com.dingbang.myworld.agent.persistence.mybatis;
 
+import com.dingbang.myworld.agent.persistence.RecoveryArtifactRecord;
+import com.dingbang.myworld.agent.persistence.RecoveryCheckpoint;
+import com.dingbang.myworld.agent.persistence.PlanRecovery;
+import com.dingbang.myworld.agent.persistence.RecoveryRunRecord;
+
 import com.dingbang.myworld.agent.api.AgentError;
 import com.dingbang.myworld.agent.api.AgentEvent;
 import com.dingbang.myworld.agent.api.AgentEventType;
@@ -22,15 +27,13 @@ import com.dingbang.myworld.aiframework.model.Role;
 import com.dingbang.myworld.aiframework.model.ToolCall;
 import com.dingbang.myworld.aiframework.model.ToolResult;
 import com.dingbang.myworld.aiframework.model.ToolResultStatus;
+import com.dingbang.myworld.common.utils.lang.HashUtils;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.transaction.support.TransactionTemplate;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.time.LocalDateTime;
@@ -39,7 +42,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -53,15 +55,25 @@ import java.util.UUID;
  * @since 2026/10/03
  */
 public final class MybatisRunService implements RecoveryJournal {
-    /** 运行及附属表 Mapper。 */
+    /**
+     * 运行及附属表 Mapper。
+     */
     private final AgentRunMapper runs;
-    /** 会话租约 Mapper。 */
+    /**
+     * 会话租约 Mapper。
+     */
     private final AgentSessionMapper sessions;
-    /** 组合写入使用的数据库事务。 */
+    /**
+     * 组合写入使用的数据库事务。
+     */
     private final TransactionTemplate transactions;
-    /** 结构化运行 JSON 编解码器。 */
+    /**
+     * 结构化运行 JSON 编解码器。
+     */
     private final ObjectMapper json = new ObjectMapper();
-    /** 部分交换编解码器。 */
+    /**
+     * 部分交换编解码器。
+     */
     private final SessionExportCodec codec = new SessionExportCodec();
 
     /**
@@ -109,11 +121,11 @@ public final class MybatisRunService implements RecoveryJournal {
     @Override
     public void start(String runId, String sessionId, AgentRequest request, String modelId,
                       String promptHash, String resumedFromRunId, String parentRunId, String rootRunId) {
-        /** 只保存恢复所需输入的请求 JSON。 */
+        // 只保存恢复所需输入的请求 JSON。
         ObjectNode input = json.createObjectNode();
         input.put("userText", request.getUserText());
         input.put("hasAttachments", !request.getAttachments().isEmpty());
-        /** 运行主表记录。 */
+        // 运行主表记录。
         AgentRunRow row = new AgentRunRow();
         row.setId(runId);
         row.setSessionId(sessionId);
@@ -143,7 +155,7 @@ public final class MybatisRunService implements RecoveryJournal {
      */
     @Override
     public void event(AgentEvent event) {
-        /** 仅包含结构化运行信息的载荷。 */
+        // 仅包含结构化运行信息的载荷。
         ObjectNode payload = json.createObjectNode();
         if (event.getText() != null) payload.put("text", event.getText());
         if (event.getToolExecution() != null) {
@@ -170,9 +182,9 @@ public final class MybatisRunService implements RecoveryJournal {
      * @param event 计划事件
      */
     private void updatePlan(AgentEvent event) {
-        /** 计划事件载荷。 */
+        // 计划事件载荷。
         PlanEvent plan = event.getPlan();
-        /** 当前运行的唯一顶层计划标识。 */
+        // 当前运行的唯一顶层计划标识。
         String planId = event.getRunId() + ":plan";
         if (event.getType() == AgentEventType.PLAN_CREATED) {
             runs.insertPlan(planId, event.getRunId(), plan.getPlanName());
@@ -196,7 +208,7 @@ public final class MybatisRunService implements RecoveryJournal {
     @Override
     public void toolStarted(String runId, ToolCall call) {
         runs.insertTool(UUID.randomUUID().toString(), runId, call.getCallId(), call.getName(),
-                call.getArgumentsJson(), sha256(call.getArgumentsJson()));
+                call.getArgumentsJson(), HashUtils.sha256(call.getArgumentsJson()));
     }
 
     /**
@@ -239,7 +251,7 @@ public final class MybatisRunService implements RecoveryJournal {
     @Override
     public void checkpoint(String runId, String sessionId, AgentRequest request,
                            long sessionVersion, int nextModelTurn, List<Message> exchange) {
-        /** 可含尚未配对工具调用的部分交换 JSON。 */
+        // 可含尚未配对工具调用的部分交换 JSON。
         String checkpointJson = codec.encode(sessionId, request.getOwnerId(), request.getAppId(),
                 request.getAgentId(), ModelOptions.empty(), new SessionSnapshot(1, exchange));
         runs.upsertCheckpoint(runId, sessionVersion, nextModelTurn, checkpointJson);
@@ -255,7 +267,7 @@ public final class MybatisRunService implements RecoveryJournal {
      */
     @Override
     public void artifact(String runId, String operation, String path, String hash) {
-        /** 是否为删除操作。 */
+        // 是否为删除操作。
         boolean deleted = "DELETE".equalsIgnoreCase(operation);
         runs.insertArtifact(UUID.randomUUID().toString(), runId, path, operation,
                 deleted ? hash : null, deleted ? null : hash);
@@ -270,12 +282,12 @@ public final class MybatisRunService implements RecoveryJournal {
      * @return 已保存产物
      */
     @Override
-    public List<ArtifactRecord> artifacts(String runId, String ownerId, String appId) {
+    public List<RecoveryArtifactRecord> artifacts(String runId, String ownerId, String appId) {
         if (find(runId, ownerId, appId) == null) throw new IllegalArgumentException("未知的运行标识或归属不匹配");
-        /** 按写入顺序排列的产物。 */
-        List<ArtifactRecord> artifacts = new ArrayList<>();
+        // 按写入顺序排列的产物。
+        List<RecoveryArtifactRecord> artifacts = new ArrayList<>();
         for (Map<String, Object> row : runs.artifactRows(runId)) {
-            artifacts.add(new ArtifactRecord(runId, value(row, "operation"), value(row, "path"),
+            artifacts.add(new RecoveryArtifactRecord(runId, value(row, "operation"), value(row, "path"),
                     value(row, "beforeHash"), value(row, "afterHash")));
         }
         return List.copyOf(artifacts);
@@ -289,20 +301,20 @@ public final class MybatisRunService implements RecoveryJournal {
      */
     @Override
     public RecoveryCheckpoint recoveryCheckpoint(String runId) {
-        /** 最新检查点行。 */
+        // 最新检查点行。
         Map<String, Object> row = runs.checkpointRow(runId);
         if (row == null) return null;
-        /** 会话历史版本。 */
+        // 会话历史版本。
         long version = ((Number) row.get("sessionVersion")).longValue();
-        /** 下一个模型回合序号。 */
+        // 下一个模型回合序号。
         int nextTurn = ((Number) row.get("nextModelTurn")).intValue();
-        /** 已验证的部分交换。 */
+        // 已验证的部分交换。
         ImportedSession decoded = codec.decodeCheckpoint(value(row, "exchangeJson"));
-        /** 可补充工具结果的消息副本。 */
+        // 可补充工具结果的消息副本。
         List<Message> messages = new ArrayList<>(decoded.getMessages());
-        /** 最后一批助手工具调用。 */
+        // 最后一批助手工具调用。
         List<ToolCall> calls = List.of();
-        /** 检查点中已包含的工具结果标识。 */
+        // 检查点中已包含的工具结果标识。
         Set<String> knownResults = new HashSet<>();
         for (Message message : messages) {
             if (!message.getToolCalls().isEmpty()) {
@@ -311,9 +323,9 @@ public final class MybatisRunService implements RecoveryJournal {
             }
             for (ToolResult result : message.getToolResults()) knownResults.add(result.getCallId());
         }
-        /** 数据库中已确认的工具结果。 */
+        // 数据库中已确认的工具结果。
         Map<String, ToolResult> persisted = toolResults(runId);
-        /** 可在完整步骤边界恢复的计划。 */
+        // 可在完整步骤边界恢复的计划。
         PlanRecovery plan = planRecovery(runId);
         if (!calls.isEmpty() && knownResults.isEmpty() && persisted.isEmpty() && !hasToolExecutions(runId)) {
             messages.remove(messages.size() - 1);
@@ -322,8 +334,8 @@ public final class MybatisRunService implements RecoveryJournal {
         for (ToolCall call : calls) {
             if (knownResults.contains(call.getCallId())) continue;
             if (plan != null && "create_plan".equals(call.getName())
-                    && plan.call().getCallId().equals(call.getCallId())) continue;
-            /** 已确认的原调用结果。 */
+                    && plan.getCall().getCallId().equals(call.getCallId())) continue;
+            // 已确认的原调用结果。
             ToolResult result = persisted.get(call.getCallId());
             if (result == null) throw new IllegalStateException("NEEDS_REVIEW");
             messages.add(new Message(runId + ":recovered-tool:" + call.getCallId(), Role.TOOL,
@@ -339,13 +351,13 @@ public final class MybatisRunService implements RecoveryJournal {
      * @return 已确认工具结果
      */
     private Map<String, ToolResult> toolResults(String runId) {
-        /** 工具结果索引。 */
+        // 工具结果索引。
         Map<String, ToolResult> results = new HashMap<>();
         for (Map<String, Object> row : runs.toolResultRows(runId)) {
             try {
-                /** 结构化工具结果。 */
+                // 结构化工具结果。
                 JsonNode node = json.readTree(value(row, "resultJson"));
-                /** 原调用标识。 */
+                // 原调用标识。
                 String callId = value(row, "callId");
                 results.put(callId, new ToolResult(callId,
                         ToolResultStatus.valueOf(node.path("status").asText()),
@@ -366,18 +378,18 @@ public final class MybatisRunService implements RecoveryJournal {
      */
     @Override
     public PlanRecovery planRecovery(String runId) {
-        /** 尚未完成的计划工具调用。 */
+        // 尚未完成的计划工具调用。
         List<Map<String, Object>> calls = runs.planCallRows(runId);
         if (calls.size() != 1) return null;
-        /** 原计划调用。 */
+        // 原计划调用。
         ToolCall call = new ToolCall(value(calls.get(0), "callId"), "create_plan",
                 value(calls.get(0), "argsJson"));
-        /** 按顺序保存的步骤状态。 */
+        // 按顺序保存的步骤状态。
         List<PlanStepStatus> statuses = new ArrayList<>();
-        /** 按顺序保存的步骤报告。 */
+        // 按顺序保存的步骤报告。
         List<String> results = new ArrayList<>();
         for (Map<String, Object> row : runs.planStepRows(runId)) {
-            /** 当前步骤状态。 */
+            // 当前步骤状态。
             PlanStepStatus state = PlanStepStatus.valueOf(value(row, "status"));
             if (state == PlanStepStatus.RUNNING) return null;
             statuses.add(state);
@@ -415,16 +427,16 @@ public final class MybatisRunService implements RecoveryJournal {
      * @return 实际更新的运行标识
      */
     private List<String> interruptRuns(boolean startup) {
-        /** 本次扫描到的运行。 */
+        // 本次扫描到的运行。
         List<String> candidates = startup ? runs.runningRunIds()
                 : runs.abandonedRunIds(LocalDateTime.now(ZoneOffset.UTC));
-        /** 实际完成状态转换的运行。 */
+        // 实际完成状态转换的运行。
         List<String> affected = new ArrayList<>();
         for (String runId : candidates) {
             transactions.executeWithoutResult(status -> {
-                /** 安全步骤边界允许忽略尚未完成的计划工具意图。 */
+                // 安全步骤边界允许忽略尚未完成的计划工具意图。
                 boolean resumablePlan = planRecovery(runId) != null;
-                /** 存在未知结果的非计划工具。 */
+                // 存在未知结果的非计划工具。
                 boolean uncertain = (resumablePlan ? runs.startedNonPlanToolCount(runId)
                         : runs.startedToolCount(runId)) > 0;
                 if (runs.interruptRun(runId, uncertain ? "NEEDS_REVIEW" : "INTERRUPTED") == 1) {
@@ -445,20 +457,35 @@ public final class MybatisRunService implements RecoveryJournal {
      * @return 运行信息；不存在或归属不符时为空
      */
     @Override
-    public RunRecord find(String runId, String ownerId, String appId) {
-        /** 运行主表记录。 */
+    public RecoveryRunRecord find(String runId, String ownerId, String appId) {
+        // 运行主表记录。
         AgentRunRow row = runs.selectById(runId);
         if (row == null || !row.getOwnerKey().equals(ownerId) || !row.getAppId().equals(appId)) return null;
         try {
-            /** 原始请求的最小 JSON。 */
+            // 原始请求的最小 JSON。
             JsonNode input = json.readTree(row.getRequestJson());
-            return new RunRecord(runId, row.getSessionId(), ownerId, appId, row.getAgentId(),
+            return new RecoveryRunRecord(runId, row.getSessionId(), ownerId, appId, row.getAgentId(),
                     row.getRequestId(), AgentResultStatus.valueOf(row.getStatus()),
                     input.path("userText").asText(), input.path("hasAttachments").asBoolean(),
                     row.getResumedFromRunId());
         } catch (Exception exception) {
             throw new IllegalStateException("PERSISTENCE_ERROR", exception);
         }
+    }
+
+    /**
+     * 按唯一请求键读取运行并再次校验归属。
+     *
+     * @param ownerId 所有者
+     * @param appId 应用
+     * @param requestId 请求标识
+     * @return 已登记运行；不存在时为空
+     */
+    @Override
+    public RecoveryRunRecord findByRequestId(String ownerId, String appId, String requestId) {
+        // 已登记的运行标识。
+        String runId = runs.runIdByRequest(ownerId, appId, requestId);
+        return runId == null ? null : find(runId, ownerId, appId);
     }
 
     /**
@@ -472,7 +499,7 @@ public final class MybatisRunService implements RecoveryJournal {
     @Override
     public AgentResult result(String runId, String ownerId, String appId) {
         if (find(runId, ownerId, appId) == null) return null;
-        /** 运行主表记录。 */
+        // 运行主表记录。
         AgentRunRow row = runs.selectById(runId);
         if (row.getResultJson() == null) return null;
         try {
@@ -495,27 +522,27 @@ public final class MybatisRunService implements RecoveryJournal {
     public List<AgentEvent> events(String runId, String ownerId, String appId, long afterSequence) {
         if (afterSequence < 0) throw new IllegalArgumentException("事件序号不能为负数");
         if (find(runId, ownerId, appId) == null) throw new IllegalArgumentException("未知的运行标识或归属不匹配");
-        /** 有序事件页。 */
+        // 有序事件页。
         List<AgentEvent> events = new ArrayList<>();
         for (Map<String, Object> row : runs.eventRows(runId, afterSequence)) {
             try {
-                /** 当前事件载荷。 */
+                // 当前事件载荷。
                 JsonNode payload = json.readTree(value(row, "payloadJson"));
-                /** 事件类型。 */
+                // 事件类型。
                 AgentEventType type = AgentEventType.valueOf(value(row, "type"));
-                /** 可选工具阶段。 */
+                // 可选工具阶段。
                 ToolExecutionEvent tool = type == AgentEventType.TOOL_EXECUTION
                         ? new ToolExecutionEvent(payload.path("callId").asText(),
                         payload.path("toolName").asText(),
                         ToolExecutionPhase.valueOf(payload.path("phase").asText()),
                         payload.has("toolResult") ? decodeToolResult(payload.path("toolResult")) : null)
                         : null;
-                /** 可选用量。 */
+                // 可选用量。
                 ModelTokenUsage usage = payload.has("usage") ? decodeUsage(payload.path("usage")) : null;
-                /** 可选计划状态。 */
+                // 可选计划状态。
                 PlanEvent plan = null;
                 if (payload.has("plan")) {
-                    /** 计划载荷。 */
+                    // 计划载荷。
                     JsonNode node = payload.path("plan");
                     plan = new PlanEvent(node.path("planName").asText(), node.path("stepNumber").asInt(),
                             node.path("stepCount").asInt(), node.path("status").isNull() ? null
@@ -552,7 +579,7 @@ public final class MybatisRunService implements RecoveryJournal {
      * @return 运行结果
      */
     private static AgentResult decodeResult(JsonNode node) {
-        /** 可选错误节点。 */
+        // 可选错误节点。
         JsonNode error = node.path("error");
         return new AgentResult(node.path("runId").asText(), node.path("sessionId").asText(),
                 node.path("requestId").asText(), AgentResultStatus.valueOf(node.path("status").asText()),
@@ -621,18 +648,4 @@ public final class MybatisRunService implements RecoveryJournal {
         return runs.toolCount(runId) > 0;
     }
 
-    /**
-     * 对工具参数计算稳定 SHA-256 哈希。
-     *
-     * @param text 参数 JSON
-     * @return 小写十六进制哈希
-     */
-    private static String sha256(String text) {
-        try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256")
-                    .digest(text.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException(exception);
-        }
-    }
 }

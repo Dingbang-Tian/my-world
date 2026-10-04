@@ -23,7 +23,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class SensitiveUtil {
 
 
+    /**
+     * 按类缓存的敏感字段名称。
+     */
     private static final Map<Class<?>, Set<String>> SENSITIVE_CLASS_FIELDS_MAP = new ConcurrentHashMap<>(16);
+    /**
+     * 当前工具使用的日志记录器。
+     */
     private static final Logger log = LoggerFactory.getLogger(SensitiveUtil.class);
 
 

@@ -17,17 +17,29 @@ import java.util.concurrent.Executor;
  * @since 2026/10/02
  */
 final class AgentEventPublisher {
-    /** 事件历史及每个消费者队列容量。 */
+    /**
+     * 事件历史及每个消费者队列容量。
+     */
     private final int historyLimit;
-    /** 事件派发专用执行器。 */
+    /**
+     * 事件派发专用执行器。
+     */
     private final Executor executor;
-    /** 有界历史事件。 */
+    /**
+     * 有界历史事件。
+     */
     private final Deque<AgentEvent> history = new ArrayDeque<>();
-    /** 活跃订阅，单次运行最多 32 个。 */
+    /**
+     * 活跃订阅，单次运行最多 32 个。
+     */
     private final List<AgentEventSubscription> listeners = new ArrayList<>();
-    /** 是否已关闭事件序列。 */
+    /**
+     * 是否已关闭事件序列。
+     */
     private boolean completed;
-    /** 最近发布的序号。 */
+    /**
+     * 最近发布的序号。
+     */
     private long lastSequence;
 
     /**
@@ -62,7 +74,7 @@ final class AgentEventPublisher {
      */
     synchronized void subscribe(AgentEventListener listener, long afterSequence) {
         Objects.requireNonNull(listener, "Agent 事件监听器不能为 null");
-        /** 当前有限历史的起点。 */
+        // 当前有限历史的起点。
         long first = history.isEmpty() ? lastSequence + 1 : history.getFirst().getSequence();
         if (afterSequence < 0 || afterSequence > lastSequence) {
             throw new AgentEventException("INVALID_EVENT_CURSOR", "事件序号不在当前运行范围内", first);
@@ -74,9 +86,9 @@ final class AgentEventPublisher {
         if (listeners.size() >= 32) {
             throw new AgentEventException("TOO_MANY_SUBSCRIBERS", "单次运行最多允许 32 个活动订阅", first);
         }
-        /** 独立的消费者有界队列。 */
+        // 独立的消费者有界队列。
         AgentEventSubscription subscription = new AgentEventSubscription(listener, historyLimit, executor);
-        /** 当前可回放事件。 */
+        // 当前可回放事件。
         for (AgentEvent event : history) {
             if (event.getSequence() > afterSequence) {
                 subscription.offer(event);
@@ -104,7 +116,7 @@ final class AgentEventPublisher {
         }
         history.addLast(event);
         lastSequence = event.getSequence();
-        /** 当前实时订阅。 */
+        // 当前实时订阅。
         for (AgentEventSubscription subscription : listeners) {
             subscription.offer(event);
             dispatch(subscription);
@@ -120,7 +132,7 @@ final class AgentEventPublisher {
             return;
         }
         completed = true;
-        /** 当前需要结束的订阅。 */
+        // 当前需要结束的订阅。
         for (AgentEventSubscription subscription : listeners) {
             subscription.complete();
             dispatch(subscription);

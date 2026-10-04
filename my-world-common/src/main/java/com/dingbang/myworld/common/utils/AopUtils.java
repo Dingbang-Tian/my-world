@@ -41,8 +41,14 @@ public class AopUtils {
     }
 
 
+    /**
+     * 错误日志格式模板。
+     */
     private static final String ERROR_LOG_TMPL = "{} service:[{}], method [{}], param:{}, error:{},header:{}";
 
+    /**
+     * 普通日志格式模板。
+     */
     private static final String INFO_LOG_TMPL = "{} service:[{}], method [{}] ,param:{},result:{},time:{},header:{}";
 
     /**

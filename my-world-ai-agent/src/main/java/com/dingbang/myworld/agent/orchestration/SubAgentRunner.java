@@ -15,9 +15,13 @@ import java.util.function.BiConsumer;
  * @since 2026/10/03
  */
 public final class SubAgentRunner {
-    /** 当前委派对应的独立子运行。 */
+    /**
+     * 当前委派对应的独立子运行。
+     */
     private final AgentRun child;
-    /** 父运行的取消信号。 */
+    /**
+     * 父运行的取消信号。
+     */
     private final CancellationToken parentCancellation;
 
     /**
@@ -38,9 +42,9 @@ public final class SubAgentRunner {
      */
     public void start(BiConsumer<AgentResult, Throwable> completion) {
         Objects.requireNonNull(completion, "完成回调不能为 null");
-        /** 启动阶段抛出的异常，优先于取消结果报告。 */
+        // 启动阶段抛出的异常，优先于取消结果报告。
         AtomicReference<Throwable> startupError = new AtomicReference<>();
-        /** 子运行结束时注销的父取消回调。 */
+        // 子运行结束时注销的父取消回调。
         Runnable unregister = parentCancellation.onCancel(child::cancel);
         child.getResult().whenComplete((result, error) -> {
             unregister.run();

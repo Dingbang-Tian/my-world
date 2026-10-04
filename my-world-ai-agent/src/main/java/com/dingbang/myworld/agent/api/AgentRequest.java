@@ -22,7 +22,9 @@ public final class AgentRequest {
      */
     private final String appId;
 
-    /** 会话所有者标识，由可信调用方提供。 */
+    /**
+     * 会话所有者标识，由可信调用方提供。
+     */
     private final String ownerId;
 
     /**
@@ -45,10 +47,14 @@ public final class AgentRequest {
      */
     private final String userText;
 
-    /** 本次调用的模型选项覆盖值。 */
+    /**
+     * 本次调用的模型选项覆盖值。
+     */
     private final ModelOptions modelOptions;
 
-    /** 本次用户输入的附件快照。 */
+    /**
+     * 本次用户输入的附件快照。
+     */
     private final List<MediaContentBlock> attachments;
 
     /**

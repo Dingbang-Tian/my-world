@@ -1,6 +1,8 @@
 package com.dingbang.myworld.aiframework.protocol.openai;
 
 import com.dingbang.myworld.aiframework.api.ModelOptions;
+import lombok.AccessLevel;
+import lombok.Getter;
 
 import java.net.URI;
 import java.util.Objects;
@@ -11,33 +13,53 @@ import java.util.Objects;
  * @author Sebastian
  * @since 2026/10/03
  */
+@Getter
 public final class OpenAiChatModelConfig {
 
-    /** 供 Agent 选择的本地模型标识。 */
+    /**
+     * 供 Agent 选择的本地模型标识。
+     */
     private final String modelId;
 
-    /** 供应商标识，仅供诊断，不决定协议解析。 */
+    /**
+     * 供应商标识，仅供诊断，不决定协议解析。
+     */
     private final String providerId;
 
-    /** Chat Completions 接口的完整地址。 */
+    /**
+     * Chat Completions 接口的完整地址。
+     */
     private final URI endpoint;
 
-    /** 服务端识别的模型名称。 */
+    /**
+     * 服务端识别的模型名称。
+     */
     private final String wireModel;
 
-    /** 请求用密钥，不进入日志或 toString。 */
+    /**
+     * 请求用密钥，不进入日志或 toString。
+     */
+    @Getter(AccessLevel.PACKAGE)
     private final String apiKey;
 
-    /** 模型实例默认生成选项。 */
+    /**
+     * 模型实例默认生成选项。
+     */
     private final ModelOptions defaultOptions;
 
-    /** 兼容供应商是否要求把推理文本写回助手历史。 */
+    /**
+     * 兼容供应商是否要求把推理文本写回助手历史。
+     */
     private final boolean forwardReasoningContent;
 
-    /** 模型实例是否允许图片输入。 */
+    /**
+     * 模型实例是否允许图片输入。
+     */
     private final boolean imageEnabled;
 
-    /** 是否接受 Qwen 兼容的 chat_template_kwargs 推理开关。 */
+    /**
+     * 是否接受 Qwen 兼容的 chat_template_kwargs 推理开关。
+     */
     private final boolean thinkingSwitchEnabled;
 
     /**
@@ -128,79 +150,6 @@ public final class OpenAiChatModelConfig {
         this.imageEnabled = imageEnabled;
         this.thinkingSwitchEnabled = thinkingSwitchEnabled;
     }
-
-    /**
-     * 返回本地模型标识。
-     *
-     * @return 本地模型标识
-     */
-    public String getModelId() {
-        return modelId;
-    }
-
-    /**
-     * 返回供应商标识。
-     *
-     * @return 供应商标识
-     */
-    public String getProviderId() {
-        return providerId;
-    }
-
-    /**
-     * 返回接口地址。
-     *
-     * @return 完整接口地址
-     */
-    public URI getEndpoint() {
-        return endpoint;
-    }
-
-    /**
-     * 返回服务端模型名称。
-     *
-     * @return 服务端模型名称
-     */
-    public String getWireModel() {
-        return wireModel;
-    }
-
-    /**
-     * 返回授权密钥供 HTTP 层使用。
-     *
-     * @return 授权密钥
-     */
-    String getApiKey() {
-        return apiKey;
-    }
-
-    /**
-     * 返回实例默认选项。
-     *
-     * @return 默认生成选项
-     */
-    public ModelOptions getDefaultOptions() {
-        return defaultOptions;
-    }
-
-    /**
-     * 返回是否回传兼容供应商的推理历史字段。
-     *
-     * @return 是否回传 reasoning_content
-     */
-    public boolean isForwardReasoningContent() {
-        return forwardReasoningContent;
-    }
-
-    /**
-     * 返回图片输入是否已启用。
-     *
-     * @return 是否接受图片输入
-     */
-    public boolean isImageEnabled() { return imageEnabled; }
-
-    /** @return 是否启用 Qwen 兼容推理开关 */
-    public boolean isThinkingSwitchEnabled() { return thinkingSwitchEnabled; }
 
     /**
      * 仅显示非敏感的模型身份。

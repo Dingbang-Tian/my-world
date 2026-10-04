@@ -17,27 +17,43 @@ import java.util.Objects;
 @Data
 public final class ImportedSession {
 
-    /** 会话标识。 */
+    /**
+     * 会话标识。
+     */
     private final String sessionId;
 
-    /** 所有者标识。 */
+    /**
+     * 所有者标识。
+     */
     private final String ownerId;
 
-    /** 应用标识。 */
+    /**
+     * 应用标识。
+     */
     private final String appId;
 
-    /** Agent 标识。 */
+    /**
+     * Agent 标识。
+     */
     private final String agentId;
 
-    /** 历史版本。 */
+    /**
+     * 历史版本。
+     */
     private final long version;
 
-    /** 会话模型选项。 */
+    /**
+     * 会话模型选项。
+     */
     private final ModelOptions options;
 
-    /** 完整历史。 */
+    /**
+     * 完整历史。
+     */
     private final List<Message> messages;
-    /** 已提交的摘要，可为 null。 */
+    /**
+     * 已提交的摘要，可为 null。
+     */
     private final MemorySummary summary;
 
     /**

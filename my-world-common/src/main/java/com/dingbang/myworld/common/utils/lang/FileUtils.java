@@ -26,10 +26,25 @@ import java.util.function.Consumer;
 @Slf4j
 public class FileUtils extends FileUtil {
 
+    /**
+     * 旧版 Excel 文件扩展名。
+     */
     public static final String XLS_EXT = "xls";
+    /**
+     * 新版 Excel 文件扩展名。
+     */
     public static final String XLSX_EXT = "xlsx";
+    /**
+     * 允许公开读取的目录。
+     */
     public static final String PUBLIC_READ_DIR = "public";
+    /**
+     * 允许私有读取的目录。
+     */
     public static final String PRIVATE_READ_DIR = "private";
+    /**
+     * 默认允许处理的文件最大字节数。
+     */
     public static final long DEFAULT_MAX_SIZE = 4 * 1024 * 1024;
 
     /**

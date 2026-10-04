@@ -24,6 +24,9 @@ import java.util.stream.Stream;
 @SuppressWarnings("NullableProblems")
 public class LazyCollection<E, C extends Collection<E>> implements Collection<E>,LazyContainer<C>, Serializable {
 
+    /**
+     * 按需加载的目标值。
+     */
     protected final Lazy<C> lazy;
 
     protected LazyCollection(Supplier<C> lazy) {

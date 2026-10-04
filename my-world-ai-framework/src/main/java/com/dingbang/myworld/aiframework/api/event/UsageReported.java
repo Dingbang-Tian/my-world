@@ -14,7 +14,9 @@ import java.util.Objects;
 @Data
 public final class UsageReported implements ModelEvent {
 
-    /** 本次模型调用的最终用量。 */
+    /**
+     * 本次模型调用的最终用量。
+     */
     private final ModelTokenUsage usage;
 
     /**

@@ -20,6 +20,9 @@ import java.util.function.Supplier;
 @Getter
 @SuppressWarnings("NullableProblems")
 public class LazyMap<K, V> implements Map<K, V> ,LazyContainer<Map<K, V>>, Serializable {
+    /**
+     * 按需加载的目标值。
+     */
     protected final Lazy<Map<K, V>> lazy;
 
     public static <K, V> LazyMap<K, V> of(Supplier<Map<K, V>> lazy) {

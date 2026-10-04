@@ -22,7 +22,8 @@ public class MyWorldApplication {
      */
     public static void main(String[] args) {
         SpringApplication.run(MyWorldApplication.class, args);
-        log.warn("""                   
+        log.warn("""
+                
                    _____      _               _   _
                   / ____|    | |             | | (_)
                  | (___   ___| |__   __ _ ___| |_ _  __ _ _ __
