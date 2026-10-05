@@ -4,6 +4,8 @@ import com.dingbang.myworld.agent.api.AgentEventListener;
 import com.dingbang.myworld.aiapp.codegen.application.CodegenTaskService;
 import com.dingbang.myworld.aiapp.codegen.application.CodegenTaskState;
 import com.dingbang.myworld.agent.session.SessionSnapshot;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.stereotype.Component;
 
 import java.util.Objects;
 
@@ -13,6 +15,8 @@ import java.util.Objects;
  * @author Sebastian
  * @since 2026/10/04
  */
+@Component
+@ConditionalOnProperty(prefix = "my-world.codegen", name = "enabled", havingValue = "true")
 public final class CodegenWebService {
 
     /**

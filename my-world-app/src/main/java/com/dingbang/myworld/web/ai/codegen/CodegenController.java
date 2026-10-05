@@ -5,6 +5,7 @@ import com.dingbang.myworld.aiapp.codegen.application.CodegenTaskState;
 import com.dingbang.myworld.agent.session.SessionSnapshot;
 import com.dingbang.myworld.common.api.ApiResponse;
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -32,21 +33,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @RestController
 @ConditionalOnProperty(prefix = "my-world.codegen", name = "enabled", havingValue = "true")
 @RequestMapping("/api/codegen/tasks")
+@RequiredArgsConstructor
 public class CodegenController {
 
     /**
      * 代码生成 Web 应用服务。
      */
     private final CodegenWebService codegen;
-
-    /**
-     * 绑定代码生成 Web 应用服务。
-     *
-     * @param codegen 代码生成 Web 应用服务
-     */
-    public CodegenController(CodegenWebService codegen) {
-        this.codegen = codegen;
-    }
 
     /**
      * 接收仅含任务、请求标识和可选会话标识的输入。
