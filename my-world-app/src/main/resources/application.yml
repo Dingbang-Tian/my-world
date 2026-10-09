@@ -11,7 +11,7 @@ spring:
         options:
           model: ${DEEPSEEK_CHAT_MODEL:deepseek-flash}
   profiles:
-    active: ${SPRING_PROFILES_ACTIVE:@spring.profiles.active@}
+    active: ${SPRING_PROFILES_ACTIVE:dev}
   threads:
     virtual:
       enabled: true
@@ -24,6 +24,12 @@ my-world:
     provider: deepseek
     default-system-prompt: "" # TODO: 配置项目级默认系统提示词
     max-input-chars: 10000 # TODO: 按业务和模型上下文窗口调整
+  news:
+    digest:
+      cron: ${MYWORLD_NEWS_DIGEST_CRON:0 0 8 * * *}
+      zone: ${MYWORLD_NEWS_DIGEST_ZONE:Asia/Shanghai}
+      webhook-url: ${MYWORLD_NEWS_DIGEST_WEBHOOK_URL:}
+      feishu-keyword: ${MYWORLD_NEWS_DIGEST_FEISHU_KEYWORD:}
 
 server:
   shutdown: graceful

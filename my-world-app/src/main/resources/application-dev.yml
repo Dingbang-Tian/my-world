@@ -15,6 +15,10 @@ my-world:
     enabled: ${MYWORLD_CODEGEN_ENABLED:true}
     web:
       owner-key: ${MYWORLD_CODEGEN_OWNER_KEY:local-dev}
+  news:
+    digest:
+      feishu-keyword: ${MYWORLD_NEWS_DIGEST_FEISHU_KEYWORD:tudoubing}
+      webhook-url: ${MYWORLD_NEWS_DIGEST_WEBHOOK_URL:https://open.feishu.cn/open-apis/bot/v2/hook/eb027ab6-a768-4c65-a7ed-526173b6e5ac}
 
 management:
   endpoint:
